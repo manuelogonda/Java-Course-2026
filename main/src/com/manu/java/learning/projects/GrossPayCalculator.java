@@ -1,3 +1,5 @@
+package com.manu.java.learning.projects;
+
 import java.util.Scanner;
 
 public class GrossPayCalculator {
