@@ -6,7 +6,7 @@ public class Employee2 {
 
       public static void main(String[] args) {
           salary = 1000;
-          System.out.println("Your salary is: " + salary + " and your are in" + DEPARTMENT);
+          System.out.println("Your salary is: " + salary + " and your are " + DEPARTMENT + " department.");
       }
 
 }
