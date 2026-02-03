@@ -16,7 +16,7 @@ public class DistanceCoveredInKm {
         String time = sc.next().toLowerCase();
 
 
-        System.out.println("Enter membership premium or not");
+        System.out.println("Enter membership true or false");
         boolean membership = sc.nextBoolean();
 
         double baseFare = 100;
