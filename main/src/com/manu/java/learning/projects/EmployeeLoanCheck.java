@@ -9,11 +9,6 @@ public class EmployeeLoanCheck {
         System.out.println("Enter your age : ");
         int age = sc.nextInt();
 
-        if(age < 20){
-            System.out.println("Too young for a loan at " + age + " years");
-            return;
-        }
-
         System.out.println("Enter your experience : ");
         int experience = sc.nextInt();
 
@@ -29,32 +24,49 @@ public class EmployeeLoanCheck {
         System.out.println("Do you have an existing loan (yes or no) : ");
         String hasExistingLoan = sc.next();
 
-        if (age >= 20 && age <= 60 && hasExistingLoan.equals("no")) {
-            if (employmentType.equals("permanent") && salary >= 50000) {
+        if (age >= 20 && age <= 60) {
+            if (employmentType.equals("permanent")) {
                 if (creditScore >= 700) {
-                    loanType = "premium";
+                    if(salary >= 50000) {
+                        if (hasExistingLoan.equals("yes")) {
+                            System.out.println("You have already loaned!");
+                        }else{
+                            loanType = "premium";
+                            System.out.println("Loan Approved for loan type " + loanType);
+                        }
+                    }else{
+                        System.out.println("Salary very low to be loaned as a permanent employee");
+                    }
                 } else {
                     loanType = "standard";
                 }
-                    System.out.println("Your loan is approved : " + loanType + " at " + salary + " a month " + " for employment type " + employmentType);
+                System.out.println("Your loan is approved : " + loanType + " at " + salary + " a month " + " for employment type " + employmentType);
 
-            } else if (employmentType.equals("contract") && salary >= 70000) {
-                if (experience >= 2 && creditScore >= 720) {
-                    loanType = "premium";
-                    System.out.println("Loan approved " + loanType + " for employment type " + employmentType);
-                } else {
-                    System.out.println("Contract loan rejected due to low credit score or experience");
+            } else if (employmentType.equals("contract")) {
+                if(salary >= 70000){
+                    if(creditScore >= 720) {
+                        if (experience >= 2) {
+                            if(hasExistingLoan.equals("yes")){
+                            loanType = "premium";
+                                System.out.println("Loan approved : " + loanType + " at " + salary + " for employment type " + employmentType + " and has existing loan : " + hasExistingLoan);
+                            }else{
+                                System.out.println("You cannot be loaned as a contract employee if don't have existing loan");
+                            }
+                        }else{
+                            System.out.println("Low experience for a contract loan");
+                        }
+                    }else{
+                        loanType = "standard";
+                        System.out.println("Loan approved : " + loanType + " at " + salary + " for employment type " + employmentType + " and has existing loan : " + hasExistingLoan);
+                    }
+                } else{
+                    System.out.println("Salary low to be loaned as a contract employee");
                 }
             }else{
-                System.out.println("You do not meet salary requirements. ");
+                System.out.println("Invalid employment type choose between contract or permanent!. ");
             }
         }else{
-            if(age > 60){
-                System.out.println("You are too old for a loan at " + age + " years");
-            }
-            else{
-                System.out.println("You already has an existing loan. ");
-            }
+            System.out.println("Too old or young for a loan age MUST be between 20 and 60.");
         }
 }
 }
