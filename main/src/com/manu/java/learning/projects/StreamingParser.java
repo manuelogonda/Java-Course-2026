@@ -14,7 +14,7 @@ public class StreamingParser {
    public static void main(String[] args) throws Exception {
         System.out.println("Enter your Math Expression : ");
           String input = sc.nextLine();
-        System.out.println("Result is " + evaluate(new StringReader(input)));
+        System.out.print("Result is : " + evaluate(new StringReader(input)));
     }
 
     public static int evaluate(Reader reader) throws IOException {
@@ -36,6 +36,14 @@ public class StreamingParser {
             }
 
             if (Character.isDigit(c)) {
+                if (!buildingNumber && !expectOperand) {
+                    while(!operatorStack.isEmpty() && precedence(operatorStack.peek()) >= precedence('*')) {
+                        applyToOperator(valueStack,operatorStack,position);
+                    }
+                    operatorStack.push('*');
+                    expectOperand = true;
+
+                }
                 buildingNumber = true;
                 currentNumber = (currentNumber * 10) + (c - '0');
                 continue;
@@ -60,11 +68,18 @@ public class StreamingParser {
                 continue;
             }
 
+
+
             if (c == '(') {
                 if (!expectOperand) {
-                    throw new RuntimeException("Missing closing bracket ')' at position " + position);
+                    while (!operatorStack.isEmpty() &&
+                            precedence(operatorStack.peek()) >= precedence('*')) {
+                        applyToOperator(valueStack, operatorStack, position);
+                    }
+                    operatorStack.push('*');
                 }
                 operatorStack.push(c);
+                expectOperand = true;
                 continue;
             }
 
@@ -113,21 +128,31 @@ public class StreamingParser {
             int value1 = valueStack.pop();
             char operator = operatorStack.pop();
 
-            if (value2 == 0 && operator == '/'){
-                throw new RuntimeException("Division by zero");
-            }
-            int result = switch (operator){
-                case '+' -> value1 + value2;
-                case '-' -> value1 - value2;
-                case '*' -> value1 * value2;
-                case '/' -> value1 / value2;
+            int result;
+            switch (operator){
+                case '+' ->
+                        result = value1 + value2;
+                case '-' ->
+                        result = value1 - value2;
+                case  '*' ->
+                    result = value1 * value2;
+                case '/' ->{
+                    if (value2 == 0){
+                        throw new RuntimeException("Division by zero at position  " + position);
+                    }else {
+                        result = value1 / value2;
+                        }
+                }
                 default -> throw new RuntimeException("Invalid operator " + operator + " at " + position);
             };
             valueStack.push(result);
     }
 
+
+
+
     public  static boolean isOperator(char c){
-            return c == '+' || c == '/' || c == '-' || c == '*';
+       return c == '+' || c == '/' || c == '-' || c == '*';
     }
 
     public  static int precedence(char c){
