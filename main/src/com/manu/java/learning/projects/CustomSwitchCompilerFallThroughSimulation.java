@@ -1,30 +1,79 @@
 package com.manu.java.learning.projects;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class CustomSwitchCompilerFallThroughSimulation {
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        System.out.println("Enter day of the week");
-        String daysOfTheWeek = scanner.next();
-        String message;
-        switch (daysOfTheWeek){
-            case "Monday":
-                case "Tuesday":
-                    case "Wednesday":
-                        case "Thursday":
-                            case "Friday":
-//                                fall-through intentional
-                                message = daysOfTheWeek + " is a Working day";
-                                break;
-                                case "Saturday":
-                                    case "Sunday":
-                                        message = daysOfTheWeek + " It's weekend ,take a rest go to church and enjoy";
-                                        break;
-            default:
-                message = "That is an invalid day of the week!";
+
+    record CaseEntry(String label, String action, boolean hasBreak) {
+        boolean isDefault() { return label.equalsIgnoreCase("default"); }
+    }
+
+    public static void simulateSwitch(String value, List<CaseEntry> cases) {
+        int startIndex = -1;
+
+        // Pass 1: find first matching case label (ignore default)
+        for (int i = 0; i < cases.size(); i++) {
+            CaseEntry c = cases.get(i);
+            if (!c.isDefault() && c.label().equals(value)) {
+                startIndex = i;
                 break;
+            }
         }
-        System.out.println(message);
+
+        // Pass 2: if no match, find default
+        if (startIndex == -1) {
+            for (int i = 0; i < cases.size(); i++) {
+                if (cases.get(i).isDefault()) {
+                    startIndex = i;
+                    break;
+                }
+            }
+        }
+
+        // No match and no default
+        if (startIndex == -1) {
+            System.out.println("(no output — no matching case and no default)");
+            return;
+        }
+
+        //Execute from startIndex with fall-through
+        System.out.println("Output:");
+        for (int i = startIndex; i < cases.size(); i++) {
+            CaseEntry c = cases.get(i);
+            System.out.println("  " + c.action());
+            if (c.hasBreak()) break;   // stop fall-through
+        }
+    }
+
+    //  Input reading
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        List<CaseEntry> cases = new ArrayList<>();
+
+        System.out.print("Enter switch value: ");
+        String value = sc.nextLine().trim();
+
+        System.out.print("How many cases (including default if any)? ");
+        int n = Integer.parseInt(sc.nextLine().trim());
+
+        for (int i = 0; i < n; i++) {
+            System.out.println(" Case " + (i + 1) + " ──");
+
+            System.out.print("  Label (or 'default'): ");
+            String label = sc.nextLine().trim();
+
+            System.out.print("  Action string: ");
+            String action = sc.nextLine().trim();
+
+            System.out.print("  Has break? (yes/no): ");
+            boolean hasBreak = sc.nextLine().trim().equalsIgnoreCase("yes");
+
+            cases.add(new CaseEntry(label, action, hasBreak));
+        }
+
+        System.out.println("Simulating switch(" + value + ") ");
+        simulateSwitch(value, cases);
     }
 }

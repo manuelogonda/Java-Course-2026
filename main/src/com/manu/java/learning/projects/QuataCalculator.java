@@ -4,18 +4,18 @@ import java.util.Scanner;
 
 public class QuataCalculator {
     public static void main(String[] args){
-        int qouta = 10;
+        int quota = 10;
         System.out.println("Enter number of sales made");
         Scanner scanner = new Scanner(System.in);
         int sales = scanner.nextInt();
 
         scanner.close();
-        if(sales >= qouta){
-            int salesAbove = sales - qouta;
-            System.out.println("Congrats you made your qouta! " + salesAbove);
+        if(sales >= quota){
+            int salesAbove = sales - quota;
+            System.out.println("Congrats you made your quota! " + salesAbove);
         }else{
-            int salesShort = qouta - sales;
-            System.out.println("Sorry,you did'nt make your quota! " + "You were " + salesShort + " sales away to achieve your quota.");
+            int salesShort = quota - sales;
+            System.out.println("Sorry,you didn't make your quota! " + "You were " + salesShort + " sales away to achieve your quota.");
         }
     }
 }

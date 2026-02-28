@@ -71,33 +71,33 @@ public class StreamingParser {
 
 
             if (c == '(') {
-                if (!expectOperand) {
-                    while (!operatorStack.isEmpty() &&
-                            precedence(operatorStack.peek()) >= precedence('*')) {
-                        applyToOperator(valueStack, operatorStack, position);
+                    if (!expectOperand) {
+                        while (!operatorStack.isEmpty() &&
+                                precedence(operatorStack.peek()) >= precedence('*')) {
+                            applyToOperator(valueStack, operatorStack, position);
+                        }
+                        operatorStack.push('*');
                     }
-                    operatorStack.push('*');
-                }
-                operatorStack.push(c);
-                expectOperand = true;
-                continue;
+                    operatorStack.push(c);
+                    expectOperand = true;
+                    continue;
             }
 
                 if (c == ')') {
-                    if (expectOperand) {
-                        throw new RuntimeException("Missing opening bracket '(' at or empty brackets " + position);
-                    }
-                    while (!operatorStack.isEmpty() && operatorStack.peek() != '(') {
-                        applyToOperator(valueStack, operatorStack, position);
-                    }
+                        if (expectOperand) {
+                            throw new RuntimeException("Missing opening bracket '(' at or empty brackets " + position);
+                        }
+                        while (!operatorStack.isEmpty() && operatorStack.peek() != '(') {
+                            applyToOperator(valueStack, operatorStack, position);
+                        }
 
-                if (operatorStack.isEmpty()) {
-                    throw new RuntimeException("Missing opening bracket '(' " +  " at " + position);
+                    if (operatorStack.isEmpty()) {
+                        throw new RuntimeException("Missing opening bracket '(' " +  " at " + position);
+                    }
+                        operatorStack.pop();
+                        expectOperand = false;
+                        continue;
                 }
-                    operatorStack.pop();
-                    expectOperand = false;
-                    continue;
-            }
                 throw new RuntimeException("Invalid character " + c + " at position " + position);
         }
 
