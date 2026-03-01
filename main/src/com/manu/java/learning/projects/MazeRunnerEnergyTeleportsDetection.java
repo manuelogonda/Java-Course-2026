@@ -64,11 +64,11 @@ public class MazeRunnerEnergyTeleportsDetection {
     static class State {
         Position    currentPosition;
         int         currentEnergy;
-        Set<String> alreadyCollectedPickups; // FIX: was Set<Position>
+        Set<String> alreadyCollectedPickups;
 
         State(Position    currentPosition,
               int         currentEnergy,
-              Set<String> alreadyCollectedPickups) { // FIX: was Set<Position>
+              Set<String> alreadyCollectedPickups) {
 
             this.currentPosition         = currentPosition;
             this.currentEnergy           = currentEnergy;
@@ -88,7 +88,6 @@ public class MazeRunnerEnergyTeleportsDetection {
 
         @Override
         public int hashCode() {
-            // FIX: manual hash — no Objects.hash() needed
             int result = 17;
             result = 31 * result + currentPosition.hashCode();
             result = 31 * result + currentEnergy;
@@ -97,9 +96,7 @@ public class MazeRunnerEnergyTeleportsDetection {
         }
     }
 
-    // ─────────────────────────────────────────────
     // MAIN RUNNER
-    // ─────────────────────────────────────────────
     public static void run(char[][] grid) {
 
         int totalRows    = grid.length;
@@ -122,17 +119,8 @@ public class MazeRunnerEnergyTeleportsDetection {
             }
         }
 
-        // ── Build teleport map (both directions) ───
-        Map<String, Position> teleportDestination = new HashMap<String, Position>();
-
-        for (int i = 0; i + 1 < teleportPositions.size(); i += 2) {
-            Position teleportA = teleportPositions.get(i);
-            Position teleportB = teleportPositions.get(i + 1);
-
-            // FIX: was only A→B, missing B→A so return teleport never worked
-            teleportDestination.put(positionKey(teleportA), teleportB);
-            teleportDestination.put(positionKey(teleportB), teleportA);
-        }
+        // Build teleport map (both directions)
+        Map<String, Position> teleportDestination = getStringPositionMap(teleportPositions);
 
         if (startPosition == null || exitPosition == null) {
             System.out.println("ERROR: Grid must contain S (start) and E (exit)");
@@ -155,7 +143,6 @@ public class MazeRunnerEnergyTeleportsDetection {
 
         // Main game loop
         while (true) {
-
             // CHECK 1 — reached exit?
             if (currentPosition.equals(exitPosition)) {
                 printResult(pathTaken,
@@ -236,10 +223,10 @@ public class MazeRunnerEnergyTeleportsDetection {
                     + " to "  + currentPosition
                     + " | energy=" + currentEnergy);
 
-            // ── HANDLE CELL AT NEW POSITION ─────────
+            // HANDLE CELL AT NEW POSITION
             char cellAtNewPosition = grid[currentPosition.row][currentPosition.col];
 
-            // Energy pickup — only triggers the FIRST time we land here
+            // Energy pickup only triggers the FIRST time we land here
             if (cellAtNewPosition == PICKUP) {
                 String pickupKey = positionKey(currentPosition);
 
@@ -272,6 +259,20 @@ public class MazeRunnerEnergyTeleportsDetection {
                 }
             }
         }
+    }
+
+    private static Map<String, Position> getStringPositionMap(List<Position> teleportPositions) {
+        Map<String, Position> teleportDestination = new HashMap<String, Position>();
+
+        for (int i = 0; i + 1 < teleportPositions.size(); i += 2) {
+            Position teleportA = teleportPositions.get(i);
+            Position teleportB = teleportPositions.get(i + 1);
+
+            // FIX: was only A→B, missing B A so return teleport never worked
+            teleportDestination.put(positionKey(teleportA), teleportB);
+            teleportDestination.put(positionKey(teleportB), teleportA);
+        }
+        return teleportDestination;
     }
 
     // HELPER — print result and full path
