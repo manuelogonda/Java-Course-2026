@@ -83,7 +83,7 @@ public class InputValidationFramework {
     // Fields: name, age, phone, gender, newsletter
     static void runUserRegistration() {
         System.out.println(" USER REGISTRATION ");
-        System.out.println("(type 'cancel' at any prompt to return to menu)");
+        System.out.println("(type 'cancel' at any prompt to return to main menu)");
 
         // Outer loop — keeps re-prompting until all fields are valid
         while (true) {

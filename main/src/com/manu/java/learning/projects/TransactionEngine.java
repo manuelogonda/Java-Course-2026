@@ -5,453 +5,483 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
+import java.util.Scanner;
 
 public class TransactionEngine {
 
-        // ─────────────────────────────────────────────
-        // LOG ENTRY
-        // Records ONE change to ONE account.
-        // Stores old balance so we can undo if needed.
-        // ─────────────────────────────────────────────
-        static class LogEntry {
-            String accountId;
-            int    oldBalance;
-            int    newBalance;
-            String operationType; // "DEPOSIT", "WITHDRAW"
+    private static final Scanner sc = new Scanner(System.in);
 
-            LogEntry(String accountId,
-                     int    oldBalance,
-                     int    newBalance,
-                     String operationType) {
-                this.accountId     = accountId;
-                this.oldBalance    = oldBalance;
-                this.newBalance    = newBalance;
-                this.operationType = operationType;
-            }
+    // Records ONE change to ONE account.
+    static class LogEntry {
+        String accountId;
+        int    oldBalance;
+        int    newBalance;
+        String operationType;
 
-            @Override
-            public String toString() {
-                return operationType
-                        + " on [" + accountId + "]"
-                        + " | " + oldBalance
-                        + " → " + newBalance;
-            }
+        LogEntry(String accountId,
+                 int    oldBalance,
+                 int    newBalance,
+                 String operationType) {
+            this.accountId     = accountId;
+            this.oldBalance    = oldBalance;
+            this.newBalance    = newBalance;
+            this.operationType = operationType;
         }
 
-        // ─────────────────────────────────────────────
-        // TRANSACTION
-        // Holds all log entries made during one
-        // begin→commit/rollback block.
-        // ─────────────────────────────────────────────
-        static class Transaction {
-            List<LogEntry> logEntries = new ArrayList<>();
-            int            transactionId;
+        @Override
+        public String toString() {
+            return operationType
+                    + " on [" + accountId + "]"
+                    + " | " + oldBalance
+                    + "  " + newBalance;
+        }
+    }
 
-            Transaction(int transactionId) {
-                this.transactionId = transactionId;
-            }
+    // TRANSACTION
+    static class Transaction {
+        List<LogEntry> logEntries  = new ArrayList<>();
+        int            transactionId;
 
-            void addLogEntry(LogEntry entry) {
-                logEntries.add(entry);
-            }
-
-            @Override
-            public String toString() {
-                return "Transaction#" + transactionId
-                        + " [" + logEntries.size() + " operations]";
-            }
+        Transaction(int transactionId) {
+            this.transactionId = transactionId;
         }
 
-        // ─────────────────────────────────────────────
-        // BANK — the main engine
-        // ─────────────────────────────────────────────
-
-        // Stores all account balances
-        // Key = account id (e.g. "ACC001")
-        // Value = current balance
-        private final Map<String, Integer> accounts = new HashMap<>();
-
-        // Stack of active transactions
-        // Top of stack = innermost / current transaction
-        private final Stack<Transaction> transactionStack = new Stack<>();
-
-        // Permanent audit log — survives even after rollbacks
-        private final List<String> auditLog = new ArrayList<>();
-
-        // Auto-incrementing id for each new transaction
-        private int nextTransactionId = 1;
-
-        // ─────────────────────────────────────────────
-        // CREATE ACCOUNT
-        // ─────────────────────────────────────────────
-        public void createAccount(String accountId, int initialBalance) {
-
-            if (initialBalance < 0) {
-                throw new IllegalArgumentException(
-                        "Initial balance cannot be negative for account: " + accountId);
-            }
-
-            if (accounts.containsKey(accountId)) {
-                throw new IllegalArgumentException(
-                        "Account already exists: " + accountId);
-            }
-
-            accounts.put(accountId, initialBalance);
-            auditLog.add("CREATED account [" + accountId + "]"
-                    + " with balance=" + initialBalance);
-            System.out.println("  Created account [" + accountId + "]"
-                    + " balance=" + initialBalance);
+        void addLogEntry(LogEntry entry) {
+            logEntries.add(entry);
         }
 
-        // ─────────────────────────────────────────────
-        // BEGIN TRANSACTION
-        // Push a new transaction onto the stack.
-        // All operations until commit/rollback belong
-        // to this transaction.
-        // ─────────────────────────────────────────────
-        public void beginTransaction() {
-            Transaction newTransaction = new Transaction(nextTransactionId++);
-            transactionStack.push(newTransaction);
-            System.out.println("  BEGIN " + newTransaction
-                    + " | depth=" + transactionStack.size());
+        @Override
+        public String toString() {
+            return "Transaction#" + transactionId
+                    + " [" + logEntries.size() + " operations]";
+        }
+    }
+
+    // BANK STATE
+    private final Map<String, Integer> accounts  = new HashMap<>();
+    private final Stack<Transaction>  transactionStack = new Stack<>();
+    private final List<String>  auditLog  = new ArrayList<>();
+    private int    nextTransactionId = 1;
+
+    // CREATE ACCOUNT
+    public void createAccount(String accountId, int initialBalance) {
+        if (initialBalance < 0) {
+            throw new IllegalArgumentException(
+                    "Initial balance cannot be negative for account: " + accountId);
+        }
+        if (accounts.containsKey(accountId)) {
+            throw new IllegalArgumentException(
+                    "Account already exists: " + accountId);
+        }
+        accounts.put(accountId, initialBalance);
+        auditLog.add("CREATED account [" + accountId + "] balance=" + initialBalance);
+        System.out.println("Congrats created account [" + accountId + "] balance = " + initialBalance);
+    }
+
+    // BEGIN TRANSACTION
+    public void beginTransaction() {
+        Transaction newTransaction = new Transaction(nextTransactionId++);
+        transactionStack.push(newTransaction);
+        System.out.println(" BEGIN " + newTransaction
+                + " | depth = " + transactionStack.size());
+    }
+
+    // DEPOSIT
+    public void deposit(String accountId, int amount) {
+        validateAccountExists(accountId);
+        validatePositiveAmount(amount);
+
+        int oldBalance = accounts.get(accountId);
+        int newBalance = oldBalance + amount;
+        applyChange(accountId, oldBalance, newBalance, "DEPOSIT");
+    }
+
+    // WITHDRAW
+    public void withdraw(String accountId, int amount) {
+        validateAccountExists(accountId);
+        validatePositiveAmount(amount);
+
+        int oldBalance = accounts.get(accountId);
+
+        if (oldBalance < amount) {
+            throw new IllegalStateException(
+                    "Insufficient funds in [" + accountId + "]"
+                            + " | balance = " + oldBalance
+                            + " | requested = " + amount);
         }
 
-        // ─────────────────────────────────────────────
-        // DEPOSIT
-        // Add money to an account.
-        // ─────────────────────────────────────────────
-        public void deposit(String accountId, int amount) {
+        int newBalance = oldBalance - amount;
+        applyChange(accountId, oldBalance, newBalance, "WITHDRAW");
+    }
 
-            validateAccountExists(accountId);
-            validatePositiveAmount(amount);
+    // TRANSFER — atomic
+    public void transfer(String fromAccountId, String toAccountId, int amount) {
+        validateAccountExists(fromAccountId);
+        validateAccountExists(toAccountId);
+        validatePositiveAmount(amount);
 
-            int oldBalance = accounts.get(accountId);
-            int newBalance = oldBalance + amount;
+        System.out.println("  TRANSFER " + amount
+                + " from [" + fromAccountId + "] to [" + toAccountId + "]");
 
-            applyChange(accountId, oldBalance, newBalance, "DEPOSIT");
+        beginTransaction();
+
+        try {
+            withdraw(fromAccountId, amount);
+            deposit(toAccountId, amount);
+            commit();
+            System.out.println("  TRANSFER successful");
+
+        } catch (Exception transferFailed) {
+            rollback();
+            throw new IllegalStateException(
+                    "TRANSFER FAILED and was rolled back: "
+                            + transferFailed.getMessage());
+        }
+    }
+
+    // COMMIT
+    public void commit() {
+        if (transactionStack.isEmpty()) {
+            throw new IllegalStateException("Cannot commit — no active transaction");
         }
 
-        // ─────────────────────────────────────────────
-        // WITHDRAW
-        // Remove money from an account.
-        // Enforces invariant: balance cannot go below 0.
-        // ─────────────────────────────────────────────
-        public void withdraw(String accountId, int amount) {
+        Transaction completedTransaction = transactionStack.pop();
+        System.out.println("COMMIT " + completedTransaction);
 
-            validateAccountExists(accountId);
-            validatePositiveAmount(amount);
+        if (transactionStack.isEmpty()) {
+            for (LogEntry entry : completedTransaction.logEntries) {
+                auditLog.add("COMMITTED: " + entry);
+            }
+            System.out.println("All changes committed permanently");
+        } else {
+            Transaction parentTransaction = transactionStack.peek();
+            parentTransaction.logEntries.addAll(completedTransaction.logEntries);
+            System.out.println("  Merged into parent " + parentTransaction
+                    + " | depth now=" + transactionStack.size());
+        }
+    }
 
-            int oldBalance = accounts.get(accountId);
+    // ROLLBACK
+    public void rollback() {
+        if (transactionStack.isEmpty()) {
+            throw new IllegalStateException("Cannot rollback — no active transaction");
+        }
 
-            // INVARIANT CHECK — never allow negative balance
-            if (oldBalance < amount) {
-                throw new IllegalStateException(
-                        "Insufficient funds in [" + accountId + "]"
-                                + " | balance=" + oldBalance
-                                + " | requested=" + amount);
+        Transaction transactionToUndo = transactionStack.pop();
+        System.out.println("  ROLLBACK " + transactionToUndo);
+
+        List<LogEntry> entries = transactionToUndo.logEntries;
+
+        // Undo in REVERSE
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            LogEntry entry = entries.get(i);
+            accounts.put(entry.accountId, entry.oldBalance);
+            System.out.println("    UNDID: " + entry + " | restored to " + entry.oldBalance);
+        }
+
+        auditLog.add("ROLLED BACK: " + entries.size()
+                + " operations in " + transactionToUndo);
+        System.out.println("  Rollback complete — " + entries.size() + " operations undone");
+    }
+
+    // APPLY CHANGE
+    private void applyChange(String accountId,
+                             int    oldBalance,
+                             int    newBalance,
+                             String operationType) {
+        accounts.put(accountId, newBalance);
+
+        LogEntry entry = new LogEntry(accountId, oldBalance, newBalance, operationType);
+
+        if (!transactionStack.isEmpty()) {
+            transactionStack.peek().addLogEntry(entry);
+            System.out.println("    " + entry
+                    + " [logged in " + transactionStack.peek()
+                    + " depth=" + transactionStack.size() + "]");
+        } else {
+            auditLog.add("IMMEDIATE: " + entry);
+            System.out.println("    " + entry + " [immediate commit]");
+        }
+    }
+
+    // VALIDATION HELPERS
+    private void validateAccountExists(String accountId) {
+        if (!accounts.containsKey(accountId)) {
+            throw new IllegalArgumentException("Account not found: " + accountId);
+        }
+    }
+
+    private void validatePositiveAmount(int amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Amount must be positive, got: " + amount);
+        }
+    }
+
+    // PRINT HELPERS
+    public void printBalances() {
+        System.out.println("Current Balances");
+        if (accounts.isEmpty()) {
+            System.out.println("(no accounts)");
+        }
+        for (Map.Entry<String, Integer> entry : accounts.entrySet()) {
+            System.out.println("  [" + entry.getKey() + "] KES " + entry.getValue());
+        }
+        System.out.println();
+    }
+
+    public void printAuditLog() {
+        System.out.println(" Audit Log ");
+        if (auditLog.isEmpty()) {
+            System.out.println("  (empty)");
+        }
+        for (int i = 0; i < auditLog.size(); i++) {
+            System.out.println("  " + (i + 1) + ". " + auditLog.get(i));
+        }
+        System.out.println();
+    }
+
+    // Shows which accounts exist
+    public void printAccounts() {
+        if (accounts.isEmpty()) {
+            System.out.println("  No accounts created yet.");
+            return;
+        }
+        System.out.println(" Existing accounts:");
+        for (Map.Entry<String, Integer> entry : accounts.entrySet()) {
+            System.out.println(" [" + entry.getKey() + "] KES " + entry.getValue());
+        }
+    }
+
+    // Shows current transaction stack depth
+    public void printTransactionStatus() {
+        if (transactionStack.isEmpty()) {
+            System.out.println("  No active transaction.");
+        } else {
+            System.out.println("  Active transaction depth: " + transactionStack.size());
+            System.out.println("  Current: " + transactionStack.peek());
+        }
+    }
+
+    // Read a non-empty string from the user
+    private static String readString(String prompt) {
+        String input = "";
+        while (input.isEmpty()) {
+            System.out.print(prompt);
+            input = sc.nextLine().trim();
+            if (input.isEmpty()) {
+                System.out.println("  Input cannot be empty. Please try again.");
+            }
+        }
+        return input;
+    }
+
+    // Read a positive integer from the user
+    private static int readInt(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String raw = sc.nextLine().trim();
+
+            // Manual digit check
+            if (raw.isEmpty()) {
+                System.out.println("  Please enter a number.");
+                continue;
             }
 
-            int newBalance = oldBalance - amount;
-            applyChange(accountId, oldBalance, newBalance, "WITHDRAW");
-        }
-
-        // ─────────────────────────────────────────────
-        // TRANSFER
-        // Move money between two accounts.
-        // ATOMIC — if either side fails, both are undone.
-        // Uses its own internal transaction to guarantee
-        // atomicity regardless of outer transactions.
-        // ─────────────────────────────────────────────
-        public void transfer(String fromAccountId,
-                             String toAccountId,
-                             int    amount) {
-
-            validateAccountExists(fromAccountId);
-            validateAccountExists(toAccountId);
-            validatePositiveAmount(amount);
-
-            System.out.println("  TRANSFER " + amount
-                    + " from [" + fromAccountId + "]"
-                    + " to ["   + toAccountId   + "]");
-
-            // Start an internal transaction to wrap both operations
-            // This guarantees atomicity — both or neither
-            beginTransaction();
-
-            try {
-                withdraw(fromAccountId, amount); // step 1 — deduct
-                deposit(toAccountId,    amount); // step 2 — add
-                commit();                        // both worked — make it permanent
-
-                System.out.println("  TRANSFER successful");
-
-            } catch (Exception transferFailed) {
-
-                // Something went wrong — undo everything in this transaction
-                rollback();
-                throw new IllegalStateException(
-                        "TRANSFER FAILED and was rolled back: "
-                                + transferFailed.getMessage());
-            }
-        }
-
-        // ─────────────────────────────────────────────
-        // COMMIT
-        // Finalize the current (innermost) transaction.
-        //
-        // If this is the outermost transaction (stack
-        // becomes empty after pop) → write to audit log.
-        //
-        // If there is still a parent transaction on the
-        // stack → merge log entries upward into parent.
-        // Parent will decide when to really commit.
-        // ─────────────────────────────────────────────
-        public void commit() {
-
-            if (transactionStack.isEmpty()) {
-                throw new IllegalStateException(
-                        "Cannot commit — no active transaction");
-            }
-
-            // Remove the current (innermost) transaction
-            Transaction completedTransaction = transactionStack.pop();
-
-            System.out.println("  COMMIT " + completedTransaction);
-
-            if (transactionStack.isEmpty()) {
-                // This was the outermost transaction
-                // Changes are already applied to accounts map
-                // Now make them permanent in the audit log
-                for (LogEntry entry : completedTransaction.logEntries) {
-                    auditLog.add("COMMITTED: " + entry);
+            boolean allDigits = true;
+            for (int i = 0; i < raw.length(); i++) {
+                char c = raw.charAt(i);
+                if (c < '0' || c > '9') {
+                    allDigits = false;
+                    break;
                 }
-                System.out.println("  All changes committed to accounts permanently");
-
-            } else {
-                // There is still a parent transaction on the stack
-                // Bubble this transaction's log entries up to the parent
-                //  will commit or rollback all of them together
-                Transaction parentTransaction = transactionStack.peek();
-                parentTransaction.logEntries.addAll(completedTransaction.logEntries);
-
-                System.out.println("  Merged into parent "
-                        + parentTransaction
-                        + " | depth now=" + transactionStack.size());
-            }
-        }
-
-        // ─────────────────────────────────────────────
-        // ROLLBACK
-        // Undo all changes made in the current (innermost)
-        // transaction. Outer transactions are unaffected.
-        //
-        // Undo in REVERSE ORDER — last change first.
-        // ─────────────────────────────────────────────
-        public void rollback() {
-
-            if (transactionStack.isEmpty()) {
-                throw new IllegalStateException(
-                        "Cannot rollback — no active transaction");
             }
 
-            // Remove the current (innermost) transaction
-            Transaction transactionToUndo = transactionStack.pop();
-
-            System.out.println("  ROLLBACK " + transactionToUndo);
-
-            // Get the log entries and reverse them
-            // We undo the LAST change first, working backwards
-            List<LogEntry> entries = transactionToUndo.logEntries;
-
-            for (int i = entries.size() - 1; i >= 0; i--) {
-                LogEntry entry = entries.get(i);
-
-                // Restore the account to what it was BEFORE this operation
-                accounts.put(entry.accountId, entry.oldBalance);
-
-                System.out.println("    UNDID: " + entry
-                        + " | restored to " + entry.oldBalance);
+            if (!allDigits) {
+                System.out.println("  '" + raw + "' is not a valid number. Try again.");
+                continue;
             }
 
-            auditLog.add("ROLLED BACK: "
-                    + transactionToUndo.logEntries.size()
-                    + " operations in "
-                    + transactionToUndo);
-            System.out.println("  Rollback complete — "
-                    + entries.size()
-                    + " operations undone");
-        }
-
-        // ─────────────────────────────────────────────
-        // APPLY CHANGE
-        // Central method — every balance change goes here.
-        // Decides whether to log (inside transaction)
-        // or commit immediately (outside transaction).
-        // ─────────────────────────────────────────────
-        private void applyChange(String accountId,
-                                 int    oldBalance,
-                                 int    newBalance,
-                                 String operationType) {
-
-            // Apply change to the real accounts map immediately
-            accounts.put(accountId, newBalance);
-
-            LogEntry entry = new LogEntry(
-                    accountId, oldBalance, newBalance, operationType);
-
-            if (!transactionStack.isEmpty()) {
-                // Inside a transaction — log it so we can roll back if needed
-                transactionStack.peek().addLogEntry(entry);
-                System.out.println("    " + entry
-                        + " [logged in "
-                        + transactionStack.peek()
-                        + " depth=" + transactionStack.size() + "]");
-            } else {
-                // Outside any transaction — immediate permanent commit
-                auditLog.add("IMMEDIATE: " + entry);
-                System.out.println("    " + entry + " [immediate commit]");
-            }
-        }
-
-        // ─────────────────────────────────────────────
-        // VALIDATION HELPERS
-        // ─────────────────────────────────────────────
-        private void validateAccountExists(String accountId) {
-            if (!accounts.containsKey(accountId)) {
-                throw new IllegalArgumentException(
-                        "Account not found: " + accountId);
-            }
-        }
-
-        private void validatePositiveAmount(int amount) {
-            if (amount <= 0) {
-                throw new IllegalArgumentException(
-                        "Amount must be positive, got: " + amount);
-            }
-        }
-
-        // ─────────────────────────────────────────────
-        // PRINT HELPERS
-        // ─────────────────────────────────────────────
-        public void printBalances() {
-            System.out.println("\n  --- Current Balances ---");
-            for (Map.Entry<String, Integer> entry : accounts.entrySet()) {
-                System.out.println("  [" + entry.getKey()
-                        + "] KES " + entry.getValue());
-            }
-            System.out.println();
-        }
-
-        public void printAuditLog() {
-            System.out.println("\n  --- Audit Log ---");
-            for (int i = 0; i < auditLog.size(); i++) {
-                System.out.println("  " + (i + 1) + ". " + auditLog.get(i));
-            }
-            System.out.println();
-        }
-
-        // ─────────────────────────────────────────────
-        // MAIN — four test scenarios
-        // ─────────────────────────────────────────────
-        static void main() {
-
-            // ── TEST 1 — Basic deposit and withdraw ────
-            System.out.println("========================================");
-            System.out.println(" TEST 1 — Basic deposit and withdraw   ");
-            System.out.println("========================================");
-            TransactionEngine bank1 = new TransactionEngine();
-            bank1.createAccount("Alice", 1000);
-            bank1.createAccount("Bob",   500);
-            bank1.beginTransaction();
-            bank1.deposit("Alice", 200);
-            bank1.withdraw("Bob",  100);
-            bank1.commit();
-            bank1.printBalances();
-            // Alice = 1200, Bob = 400
-
-
-            // ── TEST 2 — Rollback restores balances ────
-            System.out.println("========================================");
-            System.out.println(" TEST 2 — Rollback restores balances   ");
-            System.out.println("========================================");
-            TransactionEngine bank2 = new TransactionEngine();
-            bank2.createAccount("Alice", 1000);
-            bank2.createAccount("Bob",   500);
-            bank2.beginTransaction();
-            bank2.deposit("Alice", 999);  // Alice goes to 1999
-            bank2.withdraw("Bob",  200);  // Bob goes to 300
-            bank2.rollback();                 // undo both
-            bank2.printBalances();
-            // Alice = 1000, Bob = 500 (restored)
-
-
-            // ── TEST 3 — Failed transfer is atomic ─────
-            System.out.println("========================================");
-            System.out.println(" TEST 3 — Failed transfer is atomic    ");
-            System.out.println("========================================");
-            TransactionEngine bank3 = new TransactionEngine();
-            bank3.createAccount("Alice", 1000);
-            bank3.createAccount("Bob",   500);
             try {
-                // Try to transfer more than Alice has
-                bank3.transfer("Alice", "Bob", 9999);
-            } catch (IllegalStateException transferError) {
-                System.out.println("  Caught: " + transferError.getMessage());
+                int value = Integer.parseInt(raw);
+                return value;
+            } catch (NumberFormatException overflow) {
+                System.out.println("  Number too large. Please enter a smaller value.");
             }
-            bank3.printBalances();
-            // Alice = 1000, Bob = 500 (both unchanged — atomic rollback)
+        }
+    }
 
+    // MAIN MENU
+    public static void main(String[] args) {
 
-            // ── TEST 4 — Nested transactions ───────────
-            System.out.println("========================================");
-            System.out.println(" TEST 4 — Nested transactions          ");
-            System.out.println("========================================");
-            TransactionEngine bank4 = getTransactionEngine();
-            // wait — Carol has 800
-            // withdraw 900 throws exception
-            // T2 will be rolled back below
+        TransactionEngine bank = new TransactionEngine();
 
-            System.out.println("  Rolling back inner transaction only:");
-            bank4.rollback();                          // rollback T2 only
-            // Bob = 500 restored
-            // Carol = 800 restored
+        System.out.println("Type menu numbers to navigate ");
 
-            bank4.printBalances();                     // Alice=1200, Bob=500, Carol=800
-            // Alice's 200 still pending in T1
+        boolean running = true;
 
-            bank4.commit();                            // commit outer T1
-            bank4.printBalances();                     // Alice=1200, Bob=500, Carol=800
-            bank4.printAuditLog();
+        while (running) {
+            printMainMenu(bank);
+            String choice = sc.nextLine().trim();
+
+            switch (choice) {
+
+                // ACCOUNT MANAGEMENT
+                case "1":
+                    handleCreateAccount(bank);
+                    break;
+
+                case "2":
+                    bank.printBalances();
+                    break;
+
+                //  OPERATIONS
+                case "3":
+                    handleDeposit(bank);
+                    break;
+
+                case "4":
+                    handleWithdraw(bank);
+                    break;
+
+                case "5":
+                    handleTransfer(bank);
+                    break;
+
+                // TRANSACTION CONTROL
+                case "6":
+                    bank.beginTransaction();
+                    break;
+
+                case "7":
+                    try {
+                        bank.commit();
+                    } catch (IllegalStateException e) {
+                        System.out.println(" x " + e.getMessage());
+                    }
+                    break;
+
+                case "8":
+                    try {
+                        bank.rollback();
+                    } catch (IllegalStateException e) {
+                        System.out.println("  x " + e.getMessage());
+                    }
+                    break;
+
+                // INFO
+                case "9":
+                    bank.printAuditLog();
+                    break;
+
+                case "10":
+                    bank.printTransactionStatus();
+                    break;
+
+                // EXIT
+                case "0":
+                    System.out.println(" Goodbye!");
+                    running = false;
+                    break;
+
+                default:
+                    System.out.println("Invalid choice. Enter a number from the menu.");
+            }
+        }
+        sc.close();
+    }
+
+    // MAIN MENU DISPLAY
+    private static void printMainMenu(TransactionEngine bank) {
+        System.out.println("MAIN MENU");
+        System.out.println("Account Management");
+        System.out.println("1. Create Account");
+        System.out.println("2. View Balances");
+        System.out.println("Operations include ");
+        System.out.println("3. Deposit");
+        System.out.println("4. Withdraw");
+        System.out.println("5.Transfer");
+        System.out.println("Transaction Control");
+        System.out.println("6. Begin Transaction");
+        System.out.println("7. Commit");
+        System.out.println("8. Rollback");
+        System.out.println("Info");
+        System.out.println("9. View Audit Log");
+        System.out.println("10. Transaction Status");
+        System.out.println("0. Exit");
+
+        // Show a quick status line so user knows context
+        if (!bank.transactionStack.isEmpty()) {
+            System.out.println(" Active transaction — depth "
+                    + bank.transactionStack.size());
         }
 
-    private static TransactionEngine getTransactionEngine() {
-        TransactionEngine bank4 = new TransactionEngine();
-        bank4.createAccount("Alice", 1000);
-        bank4.createAccount("Bob",   500);
-        bank4.createAccount("Carol", 800);
+        System.out.print("Enter choice: ");
+    }
 
-        bank4.beginTransaction();                  // outer T1
-        bank4.deposit("Alice", 200);           // Alice = 1200
+    // HANDLER METHODS — read input then call engine
+    private static void handleCreateAccount(TransactionEngine bank) {
+        System.out.println(" Create Account");
+        bank.printAccounts();
 
-        bank4.beginTransaction();              // inner T2
-        bank4.deposit("Bob",   300);       // Bob = 800
-        bank4.withdraw("Carol", 900);      // Carol would go negative!
-        return bank4;
+        String id = readString("  Account ID (e.g. Alice, ACC001): ");
+        int balance = readInt(   "  Initial balance (KES): ");
+
+        try {
+            bank.createAccount(id, balance);
+        } catch (IllegalArgumentException e) {
+            System.out.println(" x " + e.getMessage());
+        }
+    }
+
+    private static void handleDeposit(TransactionEngine bank) {
+        System.out.println("Deposit");
+        bank.printAccounts();
+
+        if (bank.accounts.isEmpty()) return;
+
+        String id   = readString("  Account ID to deposit into: ");
+        int amount  = readInt(   "  Amount to deposit (KES): ");
+
+        try {
+            bank.deposit(id, amount);
+        } catch (IllegalArgumentException e) {
+            System.out.println(" x " + e.getMessage());
+        }
+    }
+
+    private static void handleWithdraw(TransactionEngine bank) {
+        System.out.println(" Withdraw ");
+        bank.printAccounts();
+
+        if (bank.accounts.isEmpty()) return;
+
+        String id   = readString("  Account ID to withdraw from: ");
+        int amount  = readInt(   "  Amount to withdraw (KES): ");
+
+        try {
+            bank.withdraw(id, amount);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println(" x " + e.getMessage());
+        }
+    }
+
+    private static void handleTransfer(TransactionEngine bank) {
+        System.out.println(" Transfer");
+        bank.printAccounts();
+
+        if (bank.accounts.size() < 2) {
+            System.out.println(" Need at least 2 accounts to transfer.");
+            return;
+        }
+
+        String from = readString("  From account ID: ");
+        String to   = readString("  To account ID: ");
+        int amount  = readInt(   "  Amount to transfer (KES): ");
+
+        try {
+            bank.transfer(from, to, amount);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println("  x " + e.getMessage());
+        }
     }
 }
-
-
-
-//        ## Summary of everything
-//```
-//    CONCEPT            WHAT IT MAPS TO IN CODE
-//─────────────────  ──────────────────────────────────────
-//    Accounts           HashMap<String, Integer>
-//    Nested transactions Stack<Transaction>
-//    Undo log           ArrayList<LogEntry> inside Transaction
-//    Atomicity          beginTransaction + try/catch + rollback
-//    Invariant          balance >= 0 check before every withdraw
-//    Rollback           loop log entries in reverse, restore old
-//    Commit (inner)     merge log entries into parent transaction
-//    Commit (outer)     write to permanent audit log
-//
