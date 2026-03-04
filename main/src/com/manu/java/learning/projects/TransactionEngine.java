@@ -6,233 +6,496 @@ import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 import java.util.Scanner;
+import java.util.Random;
+
+// ================================================================
+//  NAIROBI BANK — Transaction Engine
+//  Beginner friendly version
+//
+//  How to read this file:
+//    1. Read the classes at the top (Account, LogEntry, Transaction)
+//       These are the "things" the bank works with
+//    2. Read BANK STATE — the data the bank keeps track of
+//    3. Read the methods from top to bottom
+//       Each method does exactly ONE job
+//    4. main() at the bottom ties everything together
+// ================================================================
 
 public class TransactionEngine {
 
-    private static final Scanner sc = new Scanner(System.in);
+    private static final Scanner sc     = new Scanner(System.in);
+    private static final Random  random = new Random();
+    private static final int MAX_PIN_TRIES = 3;
+//  STEP 1 : Account
+    static class Account {
 
-    // Records ONE change to ONE account.
-    static class LogEntry {
-        String accountId;
-        int    oldBalance;
-        int    newBalance;
-        String operationType;
+        String  accountNumber;
+        String  name;
+        int     balance;
+        String  pin;
+        int     wrongPinCount;
+        boolean isLocked;
 
-        LogEntry(String accountId,
-                 int    oldBalance,
-                 int    newBalance,
-                 String operationType) {
-            this.accountId     = accountId;
-            this.oldBalance    = oldBalance;
-            this.newBalance    = newBalance;
-            this.operationType = operationType;
-        }
-
-        @Override
-        public String toString() {
-            return operationType
-                    + " on [" + accountId + "]"
-                    + " | " + oldBalance
-                    + "  " + newBalance;
+        // This is the constructor — it runs when we create a new Account
+        Account(String accountNumber, String name, int balance, String pin) {
+            this.accountNumber = accountNumber;
+            this.name   = name;
+            this.balance = balance;
+            this.pin  = pin;
+            this.wrongPinCount = 0;
+            this.isLocked  = false;
         }
     }
 
-    // TRANSACTION
-    static class Transaction {
-        List<LogEntry> logEntries  = new ArrayList<>();
-        int            transactionId;
 
-        Transaction(int transactionId) {
-            this.transactionId = transactionId;
+    //  STEP 2 LOG ENTRY
+    //  Every time a balance changes we save a record of it.
+    static class LogEntry {
+
+        String accountNumber;
+        int    balanceBefore;
+        int    balanceAfter;
+        String operation;
+
+        LogEntry(String accountNumber, int balanceBefore,
+                 int balanceAfter, String operation) {
+            this.accountNumber = accountNumber;
+            this.balanceBefore = balanceBefore;
+            this.balanceAfter  = balanceAfter;
+            this.operation     = operation;
+        }
+    }
+
+
+    //  STEP 3 —  TRANSACTION
+    //  Either ALL of them succeed, or NONE of them happen.
+    static class Transaction {
+
+        int id;
+        List<LogEntry> logEntries;
+
+        Transaction(int id) {
+            this.id = id;
+            this.logEntries = new ArrayList<>();
         }
 
-        void addLogEntry(LogEntry entry) {
+        // Add a record of one change to this transaction
+        void addChange(LogEntry entry) {
             logEntries.add(entry);
         }
-
-        @Override
-        public String toString() {
-            return "Transaction#" + transactionId
-                    + " [" + logEntries.size() + " operations]";
-        }
     }
 
-    // BANK STATE
-    private final Map<String, Integer> accounts  = new HashMap<>();
-    private final Stack<Transaction>  transactionStack = new Stack<>();
-    private final List<String>  auditLog  = new ArrayList<>();
-    private int    nextTransactionId = 1;
 
-    // CREATE ACCOUNT
-    public void createAccount(String accountId, int initialBalance) {
-        if (initialBalance < 0) {
-            throw new IllegalArgumentException(
-                    "Initial balance cannot be negative for account: " + accountId);
-        }
-        if (accounts.containsKey(accountId)) {
-            throw new IllegalArgumentException(
-                    "Account already exists: " + accountId);
-        }
-        accounts.put(accountId, initialBalance);
-        auditLog.add("CREATED account [" + accountId + "] balance=" + initialBalance);
-        System.out.println("Congrats created account [" + accountId + "] balance = " + initialBalance);
+    //  STEP 4 — THE BANK'S DATA
+    private Map<String, Account> accounts = new HashMap<>();
+
+    // Stack take from the top
+    private Stack<Transaction> openTransactions = new Stack<>();
+
+    // A permanent history of everything that happened
+    private List<String> auditLog = new ArrayList<>();
+
+    // Simple counter so each transaction gets a unique number
+    private int nextTransactionNumber = 1;
+
+
+    //  ACCOUNT CREATION
+
+    // Generates a random 4-digit account number
+    // Keeps trying until it finds one not already in use
+    private String makeAccountNumber() {
+        String number;
+        do {
+            int digits = random.nextInt(9000) + 1000;
+            number = String.valueOf(digits);
+        } while (accounts.containsKey(number));
+        return number;
     }
 
-    // BEGIN TRANSACTION
-    public void beginTransaction() {
-        Transaction newTransaction = new Transaction(nextTransactionId++);
-        transactionStack.push(newTransaction);
-        System.out.println(" BEGIN " + newTransaction
-                + " | depth = " + transactionStack.size());
-    }
-
-    // DEPOSIT
-    public void deposit(String accountId, int amount) {
-        validateAccountExists(accountId);
-        validatePositiveAmount(amount);
-
-        int oldBalance = accounts.get(accountId);
-        int newBalance = oldBalance + amount;
-        applyChange(accountId, oldBalance, newBalance, "DEPOSIT");
-    }
-
-    // WITHDRAW
-    public void withdraw(String accountId, int amount) {
-        validateAccountExists(accountId);
-        validatePositiveAmount(amount);
-
-        int oldBalance = accounts.get(accountId);
-
-        if (oldBalance < amount) {
-            throw new IllegalStateException(
-                    "Insufficient funds in [" + accountId + "]"
-                            + " | balance = " + oldBalance
-                            + " | requested = " + amount);
+    // Checks if a pin is exactly 4 digits and nothing else
+    private boolean isPinValid(String pin) {
+        if (pin == null || pin.length() != 4) {
+            return false;
         }
-
-        int newBalance = oldBalance - amount;
-        applyChange(accountId, oldBalance, newBalance, "WITHDRAW");
-    }
-
-    // TRANSFER — atomic
-    public void transfer(String fromAccountId, String toAccountId, int amount) {
-        validateAccountExists(fromAccountId);
-        validateAccountExists(toAccountId);
-        validatePositiveAmount(amount);
-
-        System.out.println("  TRANSFER " + amount
-                + " from [" + fromAccountId + "] to [" + toAccountId + "]");
-
-        beginTransaction();
-
-        try {
-            withdraw(fromAccountId, amount);
-            deposit(toAccountId, amount);
-            commit();
-            System.out.println("  TRANSFER successful");
-
-        } catch (Exception transferFailed) {
-            rollback();
-            throw new IllegalStateException(
-                    "TRANSFER FAILED and was rolled back: "
-                            + transferFailed.getMessage());
-        }
-    }
-
-    // COMMIT
-    public void commit() {
-        if (transactionStack.isEmpty()) {
-            throw new IllegalStateException("Cannot commit — no active transaction");
-        }
-
-        Transaction completedTransaction = transactionStack.pop();
-        System.out.println("COMMIT " + completedTransaction);
-
-        if (transactionStack.isEmpty()) {
-            for (LogEntry entry : completedTransaction.logEntries) {
-                auditLog.add("COMMITTED: " + entry);
+        for (int i = 0; i < 4; i++) {
+            char c = pin.charAt(i);
+            if (c < '0' || c > '9') {
+                return false;
             }
-            System.out.println("All changes committed permanently");
-        } else {
-            Transaction parentTransaction = transactionStack.peek();
-            parentTransaction.logEntries.addAll(completedTransaction.logEntries);
-            System.out.println("  Merged into parent " + parentTransaction
-                    + " | depth now=" + transactionStack.size());
         }
+        return true;
     }
 
-    // ROLLBACK
-    public void rollback() {
-        if (transactionStack.isEmpty()) {
-            throw new IllegalStateException("Cannot rollback — no active transaction");
+    // Creates a new account and saves it to the bank
+    public void createAccount(String name, int openingBalance, String pin) {
+
+        // Check the inputs before doing anything
+        if (openingBalance < 0) {
+            System.out.println("Opening balance MUST be more than zero.");
+            return;
+        }
+        if (!isPinValid(pin)) {
+            System.out.println("PIN MUST be exactly 4 digits.");
+            return;
         }
 
-        Transaction transactionToUndo = transactionStack.pop();
-        System.out.println("  ROLLBACK " + transactionToUndo);
+        // Generate the account number and build the account
+        String  number  = makeAccountNumber();
+        Account account = new Account(number, name.trim(), openingBalance, pin);
 
-        List<LogEntry> entries = transactionToUndo.logEntries;
+        // Save the account
+        accounts.put(number, account);
+        auditLog.add("ACCOUNT CREATED: " + number + " (" + name + ")");
 
-        // Undo in REVERSE
-        for (int i = entries.size() - 1; i >= 0; i--) {
-            LogEntry entry = entries.get(i);
-            accounts.put(entry.accountId, entry.oldBalance);
-            System.out.println("    UNDID: " + entry + " | restored to " + entry.oldBalance);
-        }
-
-        auditLog.add("ROLLED BACK: " + entries.size()
-                + " operations in " + transactionToUndo);
-        System.out.println("  Rollback complete — " + entries.size() + " operations undone");
-    }
-
-    // APPLY CHANGE
-    private void applyChange(String accountId,
-                             int    oldBalance,
-                             int    newBalance,
-                             String operationType) {
-        accounts.put(accountId, newBalance);
-
-        LogEntry entry = new LogEntry(accountId, oldBalance, newBalance, operationType);
-
-        if (!transactionStack.isEmpty()) {
-            transactionStack.peek().addLogEntry(entry);
-            System.out.println("    " + entry
-                    + " [logged in " + transactionStack.peek()
-                    + " depth=" + transactionStack.size() + "]");
-        } else {
-            auditLog.add("IMMEDIATE: " + entry);
-            System.out.println("    " + entry + " [immediate commit]");
-        }
-    }
-
-    // VALIDATION HELPERS
-    private void validateAccountExists(String accountId) {
-        if (!accounts.containsKey(accountId)) {
-            throw new IllegalArgumentException("Account not found: " + accountId);
-        }
-    }
-
-    private void validatePositiveAmount(int amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("Amount must be positive, got: " + amount);
-        }
-    }
-
-    // PRINT HELPERS
-    public void printBalances() {
-        System.out.println("Current Balances");
-        if (accounts.isEmpty()) {
-            System.out.println("(no accounts)");
-        }
-        for (Map.Entry<String, Integer> entry : accounts.entrySet()) {
-            System.out.println("  [" + entry.getKey() + "] KES " + entry.getValue());
-        }
+        // Show the account details to the user
+        System.out.println();
+        System.out.println("Account created successfully!");
+        System.out.println("Account Number : " + number );
+        System.out.println("Name : " + padRight(name.trim(), 19) );
+        System.out.println("Opening Balance: KES " + padRight(String.valueOf(openingBalance), 12));
+        System.out.println("PIN : **** ");
+        System.out.println("IMPORTANT: Write down your number: " + number);
+        System.out.println("You will need it for every transaction.");
         System.out.println();
     }
 
-    public void printAuditLog() {
-        System.out.println(" Audit Log ");
+
+    //  Before any transaction,
+    //    1. The account number must exist
+    //    2. The PIN must be correct
+
+    // Finds an account by number, returns null if not found
+    private Account findAccount(String accountNumber) {
+        return accounts.get(accountNumber);
+    }
+
+    // Checks if the entered PIN matches the account PIN
+    // Also handles wrong PIN counting and locking
+    // Returns true if PIN is correct, false if wrong or locked
+    private boolean checkPin(Account account, String enteredPin) {
+
+        // If the account is already locked, stop immediately
+        if (account.isLocked) {
+            System.out.println("Account [" + account.accountNumber + "] is LOCKED.");
+            System.out.println("Contact the bank to unlock it.");
+            return false;
+        }
+
+        // Check if the entered PIN matches
+        if (account.pin.equals(enteredPin)) {
+            account.wrongPinCount = 0;
+            return true;
+        }
+
+        // Wrong PIN — increase the counter
+        account.wrongPinCount++;
+        int triesLeft = MAX_PIN_TRIES - account.wrongPinCount;
+
+        // Check if they have used up all their tries
+        if (account.wrongPinCount >= MAX_PIN_TRIES) {
+            account.isLocked = true;
+            auditLog.add("ACCOUNT LOCKED: " + account.accountNumber
+                    + "  too many wrong PINs");
+            System.out.println("Wrong PIN. Account is now LOCKED.");
+            System.out.println("Use option 11 to reset your PIN.");
+        } else {
+            System.out.println("Wrong PIN. You have " + triesLeft + " out of " + MAX_PIN_TRIES + "tries left.");
+        }
+
+        return false;
+    }
+
+
+    //  PIN RESET
+
+    //  Here we ask for two things the real owner knows:
+    //    1. Their registered full name
+    //    2. Their current balance
+
+
+    // Resets the PIN of a locked account after identity is verified.
+    // Parameters:
+    //   accountNumber — the account to unlock
+    //   enteredName   — what the user typed as their name
+    //   enteredBalance — what the user typed as their balance (identity check)
+    //   newPin        — the new 4-digit PIN they want to set
+    public void resetPin(String accountNumber, String enteredName,
+                         int enteredBalance, String newPin) {
+        // Step 1 — does the account exist?
+        Account account = findAccount(accountNumber);
+        if (account == null) {
+            System.out.println("  Account not found: " + accountNumber);
+            return;
+        }
+        // Step 2 — is it actually locked?
+        if (!account.isLocked) {
+            System.out.println("  Account [" + accountNumber + "] is not locked.");
+            System.out.println("  PIN reset is only for locked accounts.");
+            return;
+        }
+        // Step 3 — verify identity using name + balance
+        // We compare names case-insensitively .
+        boolean nameMatches    = account.name.equalsIgnoreCase(enteredName.trim());
+        boolean balanceMatches = account.balance == enteredBalance;
+
+        if (!nameMatches || !balanceMatches) {
+            auditLog.add("FAILED PIN RESET attempt on [" + accountNumber + "]");
+            System.out.println("Identity verification failed.");
+            System.out.println("Name or balance did not match our records.");
+            return;
+        }
+        // Step 4 — validate the new PIN format
+        if (!isPinValid(newPin)) {
+            System.out.println("New PIN must be exactly 4 digits.");
+            return;
+        }
+        // Step 5 — make sure the new PIN is different from the old one.
+        if (account.pin.equals(newPin)) {
+            System.out.println("New PIN must be different from your old PIN.");
+            return;
+        }
+        // Step 6 — all checks passed, apply the reset
+        account.pin = newPin;
+        account.isLocked = false;
+        account.wrongPinCount = 0;
+
+        auditLog.add("PIN RESET and UNLOCKED for ACC - : [" + accountNumber + "]");
+        System.out.println("PIN reset successful!");
+        System.out.println("Account [" + accountNumber + "] is now unlocked.");
+        System.out.println("You can log in with your new PIN.");
+    }
+
+
+    //  DEPOSITS AND WITHDRAWALS
+    public void deposit(String accountNumber, int amount) {
+
+        Account account = findAccount(accountNumber);
+        if (account == null) {
+            System.out.println("Account not found: " + accountNumber);
+            return;
+        }
+        if (amount <= 0) {
+            System.out.println("Deposit amount must be more than zero.");
+            return;
+        }
+
+        // Save the old balance before we change it
+        int oldBalance = account.balance;
+        int newBalance = oldBalance + amount;
+
+        account.balance = newBalance;
+
+        recordChange(account, oldBalance, newBalance, "DEPOSIT");
+        System.out.println("Deposit done." + "Amount deposited was "  + amount + ", New balance now is : KES " + newBalance);
+    }
+
+    public void withdraw(String accountNumber, int amount) {
+
+        Account account = findAccount(accountNumber);
+        if (account == null) {
+            System.out.println("Account not found: " + accountNumber);
+            return;
+        }
+        if (amount <= 0) {
+            System.out.println("Withdrawal amount must be more than zero.");
+            return;
+        }
+        if (account.balance < amount) {
+            System.out.println("You have insufficient funds.");
+            System.out.println("Balance: KES " + account.balance
+                    + "  Requested: KES " + amount);
+            return;
+        }
+
+        int oldBalance = account.balance;
+        int newBalance = oldBalance - amount;
+
+        account.balance = newBalance;
+        recordChange(account, oldBalance, newBalance, "WITHDRAW");
+
+        System.out.println("Withdrawal done. Amount withdrawn is "+ amount + " New balance is : KES " + newBalance);
+    }
+
+    // Records ONE balance change
+    private void recordChange(Account account, int oldBalance,
+                              int newBalance, String operation) {
+
+        LogEntry change = new LogEntry(
+                account.accountNumber, oldBalance, newBalance, operation);
+
+        if (openTransactions.isEmpty()) {
+            // No open transaction — commit immediately and permanently
+            auditLog.add("IMMEDIATE " + operation + " on ["
+                    + account.accountNumber + "] "
+                    + oldBalance + " is " + newBalance);
+        } else {
+            // Inside a transaction — save it so we can undo if needed
+            openTransactions.peek().addChange(change);
+            System.out.println("  (saved in transaction "
+                    + openTransactions.peek().id + ")");
+        }
+    }
+
+
+    //  TRANSACTIONS — BEGIN, COMMIT, ROLLBACK
+
+    // Opens a new transaction
+    public void beginTransaction() {
+        Transaction t = new Transaction(nextTransactionNumber++);
+        openTransactions.push(t);
+        System.out.println("  Transaction #" + t.id + " started.");
+        System.out.println("  Depth: " + openTransactions.size());
+    }
+
+    // Makes all changes in the current transaction permanent
+    public void commit() {
+
+        if (openTransactions.isEmpty()) {
+            System.out.println("Nothing to commit. No open transaction.");
+            return;
+        }
+        // Take the top transaction off the stack
+        Transaction done = openTransactions.pop();
+
+        System.out.println("Committing transaction #" + done.id + "...");
+
+        if (openTransactions.isEmpty()) {
+            // This was the outermost transaction
+            // All changes are now permanent — write to audit log
+            for (LogEntry change : done.logEntries) {
+                auditLog.add("COMMITTED: " + change.operation
+                        + " [" + change.accountNumber + "] "
+                        + change.balanceBefore + " to " + change.balanceAfter);
+            }
+            System.out.println("  Done. " + done.logEntries.size()
+                    + " change(s) are now permanent.");
+        } else {
+            // The parent will decide when to truly commit
+            Transaction parent = openTransactions.peek();
+            for (LogEntry change : done.logEntries) {
+                parent.addChange(change);
+            }
+            System.out.println("Changes moved into parent transaction #"
+                    + parent.id);
+        }
+    }
+
+    // Undoes ALL changes in the current transaction
+    public void rollback() {
+
+        if (openTransactions.isEmpty()) {
+            System.out.println("Nothing to rollback. No open transaction.");
+            return;
+        }
+
+        // Take the top transaction off the stack
+        Transaction undo = openTransactions.pop();
+
+        System.out.println("Rolling back transaction #" + undo.id + "...");
+
+        // We undo changes in REVERSE ORDER
+        // Because the last change should be undone first
+        // Example: deposit then withdraw -> undo withdraw first, then deposit
+        List<LogEntry> changes = undo.logEntries;
+        for (int i = changes.size() - 1; i >= 0; i--) {
+            LogEntry change  = changes.get(i);
+            Account  account = findAccount(change.accountNumber);
+            if (account != null) {
+                account.balance = change.balanceBefore;
+                System.out.println("  Undid " + change.operation
+                        + " on [" + change.accountNumber + "]"
+                        + " — restored to KES " + change.balanceBefore);
+            }
+        }
+
+        auditLog.add("ROLLED BACK transaction #" + undo.id
+                + " — " + changes.size() + " change(s) undone");
+        System.out.println("  Rollback done. "
+                + changes.size() + " change(s) reversed.");
+    }
+
+
+    //  TRANSFER — MOVES MONEY BETWEEN TWO ACCOUNTS
+    //  Transfer is ATOMIC — all or nothing.
+    public void transfer(String fromNumber, String toNumber, int amount) {
+
+        // Check both accounts exist BEFORE starting
+        Account from = findAccount(fromNumber);
+        Account to   = findAccount(toNumber);
+
+        if (from == null) {
+            System.out.println("Sending account not found: " + fromNumber);
+            return;
+        }
+        if (to == null) {
+            System.out.println("Receiving account not found: " + toNumber);
+            return;
+        }
+        if (amount <= 0) {
+            System.out.println("Transfer amount must be more than zero.");
+            return;
+        }
+        if (from.balance < amount) {
+            System.out.println("Not enough money to transfer.");
+            System.out.println("Your account balance is : KES " + from.balance
+                    + " you needed to transfer : KES " + amount);
+            return;
+        }
+
+        System.out.println(" Transferring KES " + amount
+                + " from " + from.name + " to " + to.name + "...");
+
+        // Open a transaction so we can undo both steps if needed
+        beginTransaction();
+
+        withdraw(fromNumber, amount);
+        deposit(toNumber, amount);
+        commit();
+
+        System.out.println("Transfer successful! From " + from.name + " to " +  to.name);
+    }
+
+
+    //  PRINT HELPERS display information to the user
+    public void showMyAccount(Account account) {
+        System.out.println("Your Account");
+        System.out.println("  " + "-".repeat(40));
+        System.out.printf("  %-16s : %s%n",  "Account Number", account.accountNumber);
+        System.out.printf("  %-16s : %s%n",  "Name",           account.name);
+        System.out.printf("  %-16s : KES %,d%n", "Balance",    account.balance);
+
+        String status;
+        if (account.isLocked) {
+            status = "LOCKED";
+        } else if (account.wrongPinCount > 0) {
+            status = "Warning — " + account.wrongPinCount + " wrong PIN(s)";
+        } else {
+            status = "Active";
+        }
+        System.out.printf("  %-16s : %s%n", "Status", status);
+        System.out.println("  " + "-".repeat(40));
+        System.out.println();
+    }
+
+    public void showAccountList() {
+        if (accounts.isEmpty()) {
+            System.out.println("No accounts yet.");
+            return;
+        }
+        System.out.println("Accounts:");
+        for (Account acc : accounts.values()) {
+            System.out.println(" -> " + acc.accountNumber
+                    + "   " + acc.name
+                    + (acc.isLocked ? "  [LOCKED]" : ""));
+        }
+    }
+
+    public void showAuditLog() {
+        System.out.println("Audit Log");
+        System.out.println("  " + "-".repeat(40));
         if (auditLog.isEmpty()) {
             System.out.println("  (empty)");
+            System.out.println(); return;
         }
         for (int i = 0; i < auditLog.size(); i++) {
             System.out.println("  " + (i + 1) + ". " + auditLog.get(i));
@@ -240,56 +503,50 @@ public class TransactionEngine {
         System.out.println();
     }
 
-    // Shows which accounts exist
-    public void printAccounts() {
-        if (accounts.isEmpty()) {
-            System.out.println("  No accounts created yet.");
-            return;
-        }
-        System.out.println(" Existing accounts:");
-        for (Map.Entry<String, Integer> entry : accounts.entrySet()) {
-            System.out.println(" [" + entry.getKey() + "] KES " + entry.getValue());
-        }
-    }
-
-    // Shows current transaction stack depth
-    public void printTransactionStatus() {
-        if (transactionStack.isEmpty()) {
-            System.out.println("  No active transaction.");
+    public void showTransactionStatus() {
+        if (openTransactions.isEmpty()) {
+            System.out.println("  No open transactions.");
         } else {
-            System.out.println("  Active transaction depth: " + transactionStack.size());
-            System.out.println("  Current: " + transactionStack.peek());
+            System.out.println("Open transactions: "
+                    + openTransactions.size());
+            System.out.println("  Current: Transaction #"
+                    + openTransactions.peek().id
+                    + " with " + openTransactions.peek().logEntries.size()
+                    + " change(s)");
         }
     }
 
-    // Read a non-empty string from the user
-    private static String readString(String prompt) {
-        String input = "";
-        while (input.isEmpty()) {
-            System.out.print(prompt);
-            input = sc.nextLine().trim();
-            if (input.isEmpty()) {
-                System.out.println("  Input cannot be empty. Please try again.");
+
+    //  INPUT HELPERS — read from the keyboard safely
+
+    private static String readText(String question) {
+        String answer = "";
+        while (answer.isEmpty()) {
+            System.out.print(question);
+            answer = sc.nextLine().trim();
+            if (answer.isEmpty()) {
+                System.out.println("Please type something.");
             }
         }
-        return input;
+        return answer;
     }
 
-    // Read a positive integer from the user
-    private static int readInt(String prompt) {
+    // Reads a whole number (no letters, no decimals)
+    private static int readNumber(String question) {
         while (true) {
-            System.out.print(prompt);
-            String raw = sc.nextLine().trim();
+            System.out.print(question);
+            String typed = sc.nextLine().trim();
 
-            // Manual digit check
-            if (raw.isEmpty()) {
-                System.out.println("  Please enter a number.");
+            // Empty check
+            if (typed.isEmpty()) {
+                System.out.println("Please enter a number.");
                 continue;
             }
 
+            // Make sure every character is a digit
             boolean allDigits = true;
-            for (int i = 0; i < raw.length(); i++) {
-                char c = raw.charAt(i);
+            for (int i = 0; i < typed.length(); i++) {
+                char c = typed.charAt(i);
                 if (c < '0' || c > '9') {
                     allDigits = false;
                     break;
@@ -297,191 +554,351 @@ public class TransactionEngine {
             }
 
             if (!allDigits) {
-                System.out.println("  '" + raw + "' is not a valid number. Try again.");
+                System.out.println("That is not a number. Please try again.");
                 continue;
             }
 
+            // Parse it — catch only if the number is too big for int
             try {
-                int value = Integer.parseInt(raw);
-                return value;
-            } catch (NumberFormatException overflow) {
-                System.out.println("  Number too large. Please enter a smaller value.");
+                return Integer.parseInt(typed);
+            } catch (NumberFormatException e) {
+                System.out.println("  Number is too large. Try a smaller value.");
             }
         }
     }
 
-    // MAIN MENU
-    public static void main(String[] args) {
+    // Reads a PIN — hides typing on a real terminal
+    // Falls back to normal input in IDEs (where Console is null)
+    private static String readPin(String question) {
+        while (true) {
+            System.out.print(question);
+
+            String pin;
+            java.io.Console console = System.console();
+            if (console != null) {
+                // On a real terminal — typing is hidden
+                pin = new String(console.readPassword());
+            } else {
+                // Inside an IDE — typing is visible (that is fine for learning)
+                pin = sc.nextLine().trim();
+            }
+
+            if (pin.length() != 4) {
+                System.out.println("  PIN must be exactly 4 digits. Try again.");
+                continue;
+            }
+
+            boolean allDigits = true;
+            for (int i = 0; i < 4; i++) {
+                char c = pin.charAt(i);
+                if (c < '0' || c > '9') { allDigits = false; break; }
+            }
+
+            if (!allDigits) {
+                System.out.println("  PIN must contain only digits. Try again.");
+                continue;
+            }
+
+            return pin;
+        }
+    }
+
+    // Asks for the PIN twice and makes sure they match
+    // Used only when creating an account or resetting a PIN
+    private static String readAndConfirmPin() {
+        while (true) {
+            String first  = readPin("  Choose a 4-digit PIN : ");
+            String second = readPin("  Confirm your PIN     : ");
+
+            if (first.equals(second)) {
+                System.out.println("  PIN set successfully.");
+                System.out.println();
+                return first;
+            }
+
+            System.out.println("  PINs did not match. Please try again.");
+            System.out.println();
+            // We restart from the first entry — not just the second
+            // This way if the first one was a typo it is also corrected
+        }
+    }
+
+    // A helper to make text fill a fixed width (for neat table display)
+    private static String padRight(String text, int width) {
+        if (text.length() >= width) return text.substring(0, width);
+        StringBuilder sb = new StringBuilder(text);
+        while (sb.length() < width) sb.append(' ');
+        return sb.toString();
+    }
+
+
+    //  MAIN — the program starts here
+    static void main(String[] args) {
 
         TransactionEngine bank = new TransactionEngine();
 
-        System.out.println("Type menu numbers to navigate ");
-
+        System.out.println(" Transaction Engine ");
         boolean running = true;
-
         while (running) {
-            printMainMenu(bank);
+            showMenu(bank);
             String choice = sc.nextLine().trim();
-
             switch (choice) {
-
-                // ACCOUNT MANAGEMENT
-                case "1":
-                    handleCreateAccount(bank);
-                    break;
-
-                case "2":
-                    bank.printBalances();
-                    break;
-
-                //  OPERATIONS
-                case "3":
-                    handleDeposit(bank);
-                    break;
-
-                case "4":
-                    handleWithdraw(bank);
-                    break;
-
-                case "5":
-                    handleTransfer(bank);
-                    break;
-
-                // TRANSACTION CONTROL
-                case "6":
-                    bank.beginTransaction();
-                    break;
-
-                case "7":
-                    try {
-                        bank.commit();
-                    } catch (IllegalStateException e) {
-                        System.out.println(" x " + e.getMessage());
-                    }
-                    break;
-
-                case "8":
-                    try {
-                        bank.rollback();
-                    } catch (IllegalStateException e) {
-                        System.out.println("  x " + e.getMessage());
-                    }
-                    break;
-
-                // INFO
-                case "9":
-                    bank.printAuditLog();
-                    break;
-
-                case "10":
-                    bank.printTransactionStatus();
-                    break;
-
-                // EXIT
-                case "0":
-                    System.out.println(" Goodbye!");
+                case "1" -> handleCreateAccount(bank);
+                case "2" -> handleViewMyAccount(bank);
+                case "3" -> handleDeposit(bank);
+                case "4" -> handleWithdraw(bank);
+                case "5" -> handleTransfer(bank);
+                case "6" -> handleBeginTransaction(bank);
+                case "7" -> bank.commit();
+                case "8" -> bank.rollback();
+                case "9" -> bank.showAuditLog();
+                case "10" -> bank.showTransactionStatus();
+                case "11" ->           // ← NEW
+                        handleResetPin(bank);
+                case "0" -> {
+                    System.out.println("  Goodbye!");
                     running = false;
-                    break;
-
-                default:
-                    System.out.println("Invalid choice. Enter a number from the menu.");
+                }
+                default -> System.out.println("  That is not a valid choice. Try again.");
             }
         }
+
         sc.close();
     }
 
-    // MAIN MENU DISPLAY
-    private static void printMainMenu(TransactionEngine bank) {
+
+    //  MENU DISPLAY
+    private static void showMenu(TransactionEngine bank) {
         System.out.println("MAIN MENU");
-        System.out.println("Account Management");
-        System.out.println("1. Create Account");
-        System.out.println("2. View Balances");
-        System.out.println("Operations include ");
+        System.out.println("Accounts");
+        System.out.println(" 1. Create Account");
+        System.out.println(" 2. View My Balance");
+        System.out.println("Transactions  (account number + PIN needed)");
         System.out.println("3. Deposit");
-        System.out.println("4. Withdraw");
-        System.out.println("5.Transfer");
-        System.out.println("Transaction Control");
+        System.out.println(" 4. Withdraw");
+        System.out.println("5. Transfer");
+        System.out.println("Advanced");
         System.out.println("6. Begin Transaction");
         System.out.println("7. Commit");
         System.out.println("8. Rollback");
         System.out.println("Info");
-        System.out.println("9. View Audit Log");
+        System.out.println("9.  Audit Log");
         System.out.println("10. Transaction Status");
-        System.out.println("0. Exit");
+        System.out.println("Help");
+        System.out.println(" 11. Reset PIN (for locked accounts)");
+        System.out.println("0.  Exit");
 
-        // Show a quick status line so user knows context
-        if (!bank.transactionStack.isEmpty()) {
-            System.out.println(" Active transaction — depth "
-                    + bank.transactionStack.size());
+        // Remind the user if they have an open transaction
+        if (!bank.openTransactions.isEmpty()) {
+            System.out.println();
+            System.out.println("[REMINDER] You have an open transaction.");
+            System.out.println("Choose 7 to commit or 8 to rollback.");
         }
 
-        System.out.print("Enter choice: ");
+        System.out.print("Enter choice choice: ");
     }
 
-    // HANDLER METHODS — read input then call engine
+
+    //  HANDLER METHODS
+
+
+    // Handles option 1 — create a new account
     private static void handleCreateAccount(TransactionEngine bank) {
-        System.out.println(" Create Account");
-        bank.printAccounts();
+        System.out.println("Welcome create your Account");
 
-        String id = readString("  Account ID (e.g. Alice, ACC001): ");
-        int balance = readInt(   "  Initial balance (KES): ");
+        String name = readText("Your full name : ");
+        int balance = readNumber("Opening balance (KES) : ");
+        System.out.println("Now set your PIN.");
+        System.out.println("It must be exactly 4 digits.");
+        String pin = readAndConfirmPin();
 
-        try {
-            bank.createAccount(id, balance);
-        } catch (IllegalArgumentException e) {
-            System.out.println(" x " + e.getMessage());
-        }
+        bank.createAccount(name, balance, pin);
     }
 
-    private static void handleDeposit(TransactionEngine bank) {
-        System.out.println("Deposit");
-        bank.printAccounts();
+    // Handles option 2 — view YOUR balance (account number + PIN required)
+    private static void handleViewMyAccount(TransactionEngine bank) {
+        System.out.println(" View My Balance");
 
-        if (bank.accounts.isEmpty()) return;
-
-        String id   = readString("  Account ID to deposit into: ");
-        int amount  = readInt(   "  Amount to deposit (KES): ");
-
-        try {
-            bank.deposit(id, amount);
-        } catch (IllegalArgumentException e) {
-            System.out.println(" x " + e.getMessage());
+        if (bank.accounts.isEmpty()) {
+            System.out.println("No accounts yet. Create one first.");
+            return;
         }
-    }
+        bank.showAccountList();
 
-    private static void handleWithdraw(TransactionEngine bank) {
-        System.out.println(" Withdraw ");
-        bank.printAccounts();
-
-        if (bank.accounts.isEmpty()) return;
-
-        String id   = readString("  Account ID to withdraw from: ");
-        int amount  = readInt(   "  Amount to withdraw (KES): ");
-
-        try {
-            bank.withdraw(id, amount);
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            System.out.println(" x " + e.getMessage());
-        }
-    }
-
-    private static void handleTransfer(TransactionEngine bank) {
-        System.out.println(" Transfer");
-        bank.printAccounts();
-
-        if (bank.accounts.size() < 2) {
-            System.out.println(" Need at least 2 accounts to transfer.");
+        // Step 1 — get the account number
+        String number = readText("Your account number : ");
+        Account account = bank.findAccount(number);
+        if (account == null) {
+            System.out.println("Account not found. Check the number.");
             return;
         }
 
-        String from = readString("  From account ID: ");
-        String to   = readString("  To account ID: ");
-        int amount  = readInt(   "  Amount to transfer (KES): ");
-
-        try {
-            bank.transfer(from, to, amount);
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            System.out.println("  x " + e.getMessage());
+        // Step 2 — check the PIN before showing anything
+        String pin = readPin("Enter your PIN : ");
+        boolean pinOk = bank.checkPin(account, pin);
+        if (!pinOk) {
+            return;
         }
+        bank.showMyAccount(account);
+    }
+
+    // Handles option 3 — deposit money
+    private static void handleDeposit(TransactionEngine bank) {
+        System.out.println("Deposit to your account ");
+
+        if (bank.accounts.isEmpty()) {
+            System.out.println("No accounts yet. Create one first.");
+            return;
+        }
+        bank.showAccountList();
+
+        String number = readText("Your account number : ");
+
+        // Step 1 — find the account
+        Account account = bank.findAccount(number);
+        if (account == null) {
+            System.out.println("Account not found. Check the number.");
+            return;
+        }
+        // Step 2 — check the PIN before doing anything
+        String pin = readPin(" Enter your PIN : ");
+        boolean pinOk = bank.checkPin(account, pin);
+        if (!pinOk) {
+            return;
+        }
+        // Step 3 — get the amount and deposit
+        int amount = readNumber("Amount to deposit : KES ");
+        bank.deposit(number, amount);
+    }
+
+    // Handles option 4 — withdraw money
+    private static void handleWithdraw(TransactionEngine bank) {
+        System.out.println(" Withdraw ");
+
+        if (bank.accounts.isEmpty()) {
+            System.out.println("No accounts yet. Create one first.");
+            return;
+        }
+        bank.showAccountList();
+
+        String number = readText("Your account number : ");
+        Account account = bank.findAccount(number);
+        if (account == null) {
+            System.out.println("Account not found. Check the number.");
+            return;
+        }
+
+        String pin = readPin("Enter your PIN : ");
+        boolean pinOk = bank.checkPin(account, pin);
+        if (!pinOk) {
+            return;
+        }
+
+        int amount = readNumber("Amount to withdraw : KES ");
+        bank.withdraw(number, amount);
+    }
+
+    // Handles option 5 — transfer between accounts
+    // Only the SENDER needs to enter a PIN
+    private static void handleTransfer(TransactionEngine bank) {
+        System.out.println("Transfer");
+
+        if (bank.accounts.size() < 2) {
+            System.out.println(" You need at least 2 accounts to transfer.");
+            return;
+        }
+
+        bank.showAccountList();
+        // Get sender details and verify PIN
+        String fromNumber = readText("Your account number      : ");
+        Account sender = bank.findAccount(fromNumber);
+        if (sender == null) {
+            System.out.println("Sending account not found.");
+            return;
+        }
+
+        String pin = readPin("Enter your PIN : ");
+        boolean pinOk = bank.checkPin(sender, pin);
+        if (!pinOk) {
+            return;
+        }
+
+        // Get recipient and amount
+        String toNumber = readText("Recipient account number : ");
+        int amount = readNumber("Amount to transfer (KES) : ");
+
+        bank.transfer(fromNumber, toNumber, amount);
+    }
+
+    // Handles option 6 — begin a transaction manually
+    private static void handleBeginTransaction(TransactionEngine bank) {
+        System.out.println("Begin Transaction");
+
+        if (bank.accounts.isEmpty()) {
+            System.out.println("No accounts yet. Create one first.");
+            return;
+        }
+
+        bank.showAccountList();
+
+        String number = readText("Your account number : ");
+        Account account = bank.findAccount(number);
+        if (account == null) {
+            System.out.println("Account not found.");
+            return;
+        }
+
+        String pin = readPin("Enter your PIN : ");
+        boolean pinOk = bank.checkPin(account, pin);
+        if (!pinOk) {
+            return;
+        }
+
+        bank.beginTransaction();
+        System.out.println("You can now deposit, withdraw or transfer.");
+        System.out.println("Choose 7 to save (commit) or 8 to cancel (rollback).");
+    }
+
+
+    //  Handles option 11 — reset PIN for a locked account
+
+    private static void handleResetPin(TransactionEngine bank) {
+        System.out.println(" Reset PIN ");
+        System.out.println("We will verify your identity without your PIN.");
+
+        if (bank.accounts.isEmpty()) {
+            System.out.println(" No accounts yet. Create one first.");
+            return;
+        }
+
+        bank.showAccountList();
+
+        // Step 1 — account number
+        String number = readText("Your account number : ");
+
+        Account account = bank.findAccount(number);
+        if (account == null) {
+            System.out.println("Account not found. Check the number.");
+            return;
+        }
+        if (!account.isLocked) {
+            System.out.println("That account is not locked.");
+            System.out.println("You can change your PIN through normal login.");
+            return;
+        }
+
+        System.out.println("Account is locked. Let's verify your identity.");
+        System.out.println();
+
+        // Step 2 — identity verification inputs
+        String enteredName    = readText("Your registered full name  : ");
+        int    enteredBalance = readNumber("Your current balance (KES) : ");
+
+        // Step 3 — new PIN
+        System.out.println("Now choose a new PIN.");
+        String newPin = readAndConfirmPin();
+
+        // Step 4 — hand everything to the bank method
+        bank.resetPin(number, enteredName, enteredBalance, newPin);
     }
 }

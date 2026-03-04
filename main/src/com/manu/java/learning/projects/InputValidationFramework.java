@@ -242,7 +242,7 @@ public class InputValidationFramework {
             // SHOW ALL ERRORS OR ACCEPT
             if (!allErrors.isEmpty()) {
                 printAllErrors(allErrors);
-                System.out.println("  Please correct the above and try again.\n");
+                System.out.println(" Please correct the above and try again.");
 
             } else {
                 System.out.println(" Appointment booked!");

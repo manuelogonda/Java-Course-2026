@@ -13,12 +13,9 @@ public class LL {
 //        nums.add(27);
 //       nums.add(2,30);
 //       nums.contains(3);
-//        System.out.println( nums.get(nums.toArray().length - 1));
+//        System.out.println(nums.get(nums.toArray().length - 1));
 //       System.out.println(nums);
 LinkedList list = new LinkedList();
-
-
-// Main class to test the linked list
         list.add(10);
         list.add(20);
         list.add(30);
