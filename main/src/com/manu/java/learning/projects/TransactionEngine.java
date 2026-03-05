@@ -8,21 +8,8 @@ import java.util.Stack;
 import java.util.Scanner;
 import java.util.Random;
 
-// ================================================================
-//  NAIROBI BANK — Transaction Engine
-//  Beginner friendly version
-//
-//  How to read this file:
-//    1. Read the classes at the top (Account, LogEntry, Transaction)
-//       These are the "things" the bank works with
-//    2. Read BANK STATE — the data the bank keeps track of
-//    3. Read the methods from top to bottom
-//       Each method does exactly ONE job
-//    4. main() at the bottom ties everything together
-// ================================================================
-
+//  BANK — Transaction Engine
 public class TransactionEngine {
-
     private static final Scanner sc     = new Scanner(System.in);
     private static final Random  random = new Random();
     private static final int MAX_PIN_TRIES = 3;
@@ -51,7 +38,6 @@ public class TransactionEngine {
     //  STEP 2 LOG ENTRY
     //  Every time a balance changes we save a record of it.
     static class LogEntry {
-
         String accountNumber;
         int    balanceBefore;
         int    balanceAfter;
@@ -98,11 +84,7 @@ public class TransactionEngine {
     // Simple counter so each transaction gets a unique number
     private int nextTransactionNumber = 1;
 
-
     //  ACCOUNT CREATION
-
-    // Generates a random 4-digit account number
-    // Keeps trying until it finds one not already in use
     private String makeAccountNumber() {
         String number;
         do {
@@ -138,31 +120,23 @@ public class TransactionEngine {
             System.out.println("PIN MUST be exactly 4 digits.");
             return;
         }
-
         // Generate the account number and build the account
         String  number  = makeAccountNumber();
         Account account = new Account(number, name.trim(), openingBalance, pin);
 
         // Save the account
         accounts.put(number, account);
-        auditLog.add("ACCOUNT CREATED: " + number + " (" + name + ")");
+        auditLog.add("ACCOUNT CREATED FOR : " + name + " (" + number + ")");
 
         // Show the account details to the user
-        System.out.println();
         System.out.println("Account created successfully!");
         System.out.println("Account Number : " + number );
-        System.out.println("Name : " + padRight(name.trim(), 19) );
-        System.out.println("Opening Balance: KES " + padRight(String.valueOf(openingBalance), 12));
+        System.out.println("Name : " + name.trim().toLowerCase());
+        System.out.println("Opening Balance: KES " + openingBalance);
         System.out.println("PIN : **** ");
         System.out.println("IMPORTANT: Write down your number: " + number);
         System.out.println("You will need it for every transaction.");
-        System.out.println();
     }
-
-
-    //  Before any transaction,
-    //    1. The account number must exist
-    //    2. The PIN must be correct
 
     // Finds an account by number, returns null if not found
     private Account findAccount(String accountNumber) {
@@ -170,8 +144,6 @@ public class TransactionEngine {
     }
 
     // Checks if the entered PIN matches the account PIN
-    // Also handles wrong PIN counting and locking
-    // Returns true if PIN is correct, false if wrong or locked
     private boolean checkPin(Account account, String enteredPin) {
 
         // If the account is already locked, stop immediately
@@ -207,18 +179,6 @@ public class TransactionEngine {
 
 
     //  PIN RESET
-
-    //  Here we ask for two things the real owner knows:
-    //    1. Their registered full name
-    //    2. Their current balance
-
-
-    // Resets the PIN of a locked account after identity is verified.
-    // Parameters:
-    //   accountNumber — the account to unlock
-    //   enteredName   — what the user typed as their name
-    //   enteredBalance — what the user typed as their balance (identity check)
-    //   newPin        — the new 4-digit PIN they want to set
     public void resetPin(String accountNumber, String enteredName,
                          int enteredBalance, String newPin) {
         // Step 1 — does the account exist?
@@ -338,7 +298,6 @@ public class TransactionEngine {
 
 
     //  TRANSACTIONS — BEGIN, COMMIT, ROLLBACK
-
     // Opens a new transaction
     public void beginTransaction() {
         Transaction t = new Transaction(nextTransactionNumber++);
@@ -349,7 +308,6 @@ public class TransactionEngine {
 
     // Makes all changes in the current transaction permanent
     public void commit() {
-
         if (openTransactions.isEmpty()) {
             System.out.println("Nothing to commit. No open transaction.");
             return;
@@ -360,14 +318,13 @@ public class TransactionEngine {
         System.out.println("Committing transaction #" + done.id + "...");
 
         if (openTransactions.isEmpty()) {
-            // This was the outermost transaction
             // All changes are now permanent — write to audit log
             for (LogEntry change : done.logEntries) {
                 auditLog.add("COMMITTED: " + change.operation
                         + " [" + change.accountNumber + "] "
                         + change.balanceBefore + " to " + change.balanceAfter);
             }
-            System.out.println("  Done. " + done.logEntries.size()
+            System.out.println("Done. " + done.logEntries.size()
                     + " change(s) are now permanent.");
         } else {
             // The parent will decide when to truly commit
@@ -394,8 +351,6 @@ public class TransactionEngine {
         System.out.println("Rolling back transaction #" + undo.id + "...");
 
         // We undo changes in REVERSE ORDER
-        // Because the last change should be undone first
-        // Example: deposit then withdraw -> undo withdraw first, then deposit
         List<LogEntry> changes = undo.logEntries;
         for (int i = changes.size() - 1; i >= 0; i--) {
             LogEntry change  = changes.get(i);
@@ -414,8 +369,6 @@ public class TransactionEngine {
                 + changes.size() + " change(s) reversed.");
     }
 
-
-    //  TRANSFER — MOVES MONEY BETWEEN TWO ACCOUNTS
     //  Transfer is ATOMIC — all or nothing.
     public void transfer(String fromNumber, String toNumber, int amount) {
 
@@ -444,7 +397,6 @@ public class TransactionEngine {
 
         System.out.println(" Transferring KES " + amount
                 + " from " + from.name + " to " + to.name + "...");
-
         // Open a transaction so we can undo both steps if needed
         beginTransaction();
 
@@ -455,14 +407,12 @@ public class TransactionEngine {
         System.out.println("Transfer successful! From " + from.name + " to " +  to.name);
     }
 
-
     //  PRINT HELPERS display information to the user
     public void showMyAccount(Account account) {
         System.out.println("Your Account");
-        System.out.println("  " + "-".repeat(40));
-        System.out.printf("  %-16s : %s%n",  "Account Number", account.accountNumber);
-        System.out.printf("  %-16s : %s%n",  "Name",           account.name);
-        System.out.printf("  %-16s : KES %,d%n", "Balance",    account.balance);
+        System.out.println( "Account Number : " + account.accountNumber);
+        System.out.println("Name : " +  account.name);
+        System.out.println("Balance : " + account.balance);
 
         String status;
         if (account.isLocked) {
@@ -472,9 +422,7 @@ public class TransactionEngine {
         } else {
             status = "Active";
         }
-        System.out.printf("  %-16s : %s%n", "Status", status);
-        System.out.println("  " + "-".repeat(40));
-        System.out.println();
+        System.out.printf("Status" + status);
     }
 
     public void showAccountList() {
@@ -492,7 +440,6 @@ public class TransactionEngine {
 
     public void showAuditLog() {
         System.out.println("Audit Log");
-        System.out.println("  " + "-".repeat(40));
         if (auditLog.isEmpty()) {
             System.out.println("  (empty)");
             System.out.println(); return;
@@ -515,7 +462,6 @@ public class TransactionEngine {
                     + " change(s)");
         }
     }
-
 
     //  INPUT HELPERS — read from the keyboard safely
 
@@ -568,7 +514,6 @@ public class TransactionEngine {
     }
 
     // Reads a PIN — hides typing on a real terminal
-    // Falls back to normal input in IDEs (where Console is null)
     private static String readPin(String question) {
         while (true) {
             System.out.print(question);
@@ -576,10 +521,8 @@ public class TransactionEngine {
             String pin;
             java.io.Console console = System.console();
             if (console != null) {
-                // On a real terminal — typing is hidden
                 pin = new String(console.readPassword());
             } else {
-                // Inside an IDE — typing is visible (that is fine for learning)
                 pin = sc.nextLine().trim();
             }
 
@@ -604,11 +547,10 @@ public class TransactionEngine {
     }
 
     // Asks for the PIN twice and makes sure they match
-    // Used only when creating an account or resetting a PIN
     private static String readAndConfirmPin() {
         while (true) {
             String first  = readPin("  Choose a 4-digit PIN : ");
-            String second = readPin("  Confirm your PIN     : ");
+            String second = readPin("  Confirm your PIN  : ");
 
             if (first.equals(second)) {
                 System.out.println("  PIN set successfully.");
@@ -617,19 +559,11 @@ public class TransactionEngine {
             }
 
             System.out.println("  PINs did not match. Please try again.");
-            System.out.println();
-            // We restart from the first entry — not just the second
-            // This way if the first one was a typo it is also corrected
+
         }
     }
 
-    // A helper to make text fill a fixed width (for neat table display)
-    private static String padRight(String text, int width) {
-        if (text.length() >= width) return text.substring(0, width);
-        StringBuilder sb = new StringBuilder(text);
-        while (sb.length() < width) sb.append(' ');
-        return sb.toString();
-    }
+
 
 
     //  MAIN — the program starts here
@@ -637,7 +571,7 @@ public class TransactionEngine {
 
         TransactionEngine bank = new TransactionEngine();
 
-        System.out.println(" Transaction Engine ");
+        System.out.println("Transaction Engine ");
         boolean running = true;
         while (running) {
             showMenu(bank);
@@ -653,13 +587,13 @@ public class TransactionEngine {
                 case "8" -> bank.rollback();
                 case "9" -> bank.showAuditLog();
                 case "10" -> bank.showTransactionStatus();
-                case "11" ->           // ← NEW
+                case "11" ->
                         handleResetPin(bank);
                 case "0" -> {
-                    System.out.println("  Goodbye!");
+                    System.out.println("Thank you are welcome next time");
                     running = false;
                 }
-                default -> System.out.println("  That is not a valid choice. Try again.");
+                default -> System.out.println("That is not a valid choice. Try again.");
             }
         }
 
@@ -686,22 +620,17 @@ public class TransactionEngine {
         System.out.println("10. Transaction Status");
         System.out.println("Help");
         System.out.println(" 11. Reset PIN (for locked accounts)");
-        System.out.println("0.  Exit");
+        System.out.println("0. Exit");
 
         // Remind the user if they have an open transaction
         if (!bank.openTransactions.isEmpty()) {
-            System.out.println();
             System.out.println("[REMINDER] You have an open transaction.");
             System.out.println("Choose 7 to commit or 8 to rollback.");
         }
-
-        System.out.print("Enter choice choice: ");
+        System.out.print("Enter choice choice [0 -11]: ");
     }
 
-
     //  HANDLER METHODS
-
-
     // Handles option 1 — create a new account
     private static void handleCreateAccount(TransactionEngine bank) {
         System.out.println("Welcome create your Account");
@@ -717,7 +646,7 @@ public class TransactionEngine {
 
     // Handles option 2 — view YOUR balance (account number + PIN required)
     private static void handleViewMyAccount(TransactionEngine bank) {
-        System.out.println(" View My Balance");
+        System.out.println(" View Balance");
 
         if (bank.accounts.isEmpty()) {
             System.out.println("No accounts yet. Create one first.");
@@ -753,7 +682,6 @@ public class TransactionEngine {
         bank.showAccountList();
 
         String number = readText("Your account number : ");
-
         // Step 1 — find the account
         Account account = bank.findAccount(number);
         if (account == null) {
@@ -799,7 +727,6 @@ public class TransactionEngine {
     }
 
     // Handles option 5 — transfer between accounts
-    // Only the SENDER needs to enter a PIN
     private static void handleTransfer(TransactionEngine bank) {
         System.out.println("Transfer");
 
@@ -888,7 +815,6 @@ public class TransactionEngine {
         }
 
         System.out.println("Account is locked. Let's verify your identity.");
-        System.out.println();
 
         // Step 2 — identity verification inputs
         String enteredName    = readText("Your registered full name  : ");
