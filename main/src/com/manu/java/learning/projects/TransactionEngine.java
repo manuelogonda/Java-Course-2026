@@ -173,7 +173,6 @@ public class TransactionEngine {
         } else {
             System.out.println("Wrong PIN. You have " + triesLeft + " out of " + MAX_PIN_TRIES + "tries left.");
         }
-
         return false;
     }
 
@@ -422,7 +421,7 @@ public class TransactionEngine {
         } else {
             status = "Active";
         }
-        System.out.printf("Status" + status);
+        System.out.println("Status" + status);
     }
 
     public void showAccountList() {
@@ -508,7 +507,7 @@ public class TransactionEngine {
             try {
                 return Integer.parseInt(typed);
             } catch (NumberFormatException e) {
-                System.out.println("  Number is too large. Try a smaller value.");
+                System.out.println("Number is too large. Try a smaller value.");
             }
         }
     }
@@ -527,7 +526,7 @@ public class TransactionEngine {
             }
 
             if (pin.length() != 4) {
-                System.out.println("  PIN must be exactly 4 digits. Try again.");
+                System.out.println("PIN must be exactly 4 digits. Try again.");
                 continue;
             }
 
@@ -737,7 +736,7 @@ public class TransactionEngine {
 
         bank.showAccountList();
         // Get sender details and verify PIN
-        String fromNumber = readText("Your account number      : ");
+        String fromNumber = readText("Your account number : ");
         Account sender = bank.findAccount(fromNumber);
         if (sender == null) {
             System.out.println("Sending account not found.");
