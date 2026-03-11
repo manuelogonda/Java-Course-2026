@@ -1,443 +1,558 @@
 package com.manu.java.learning.projects;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Scanner;
+import java.util.TreeMap;
+
+// ====================================================================
+//  WHAT IS THIS PROGRAM?
+//
+//  This is a mini programming language interpreter.
+//  You type instructions one by one (like SET x 5, ADD x 3, PRINT x).
+//  When you type RUN, it reads all those instructions and executes them.
+//
+//  Think of it like teaching the computer a tiny language,
+//  then letting it "run" a program written in that language.
+//
+//  HOW IT RUNS — step by step:
+//  1. You type instructions into a BUFFER (a list of lines)
+//  2. You type RUN
+//  3. LOAD scans the buffer for labels (like LOOP:) and builds a map
+//  4. LOAD parses every line into an Instruction object
+//  5. RUN executes each instruction one by one using a program counter (pc)
+//  6. pc starts at 0 and moves forward by 1 after each instruction
+//  7. JUMP and IF instructions can move pc to any label — that's how
+//     loops and conditions work
+//  8. STOP halts execution
+// ====================================================================
 
 public class MiniLangInterpreter {
-    enum OpCode {
-        SET,
-        ADD,
-        SUB,
-        MUL,
-        DIV,
-        IFZ,
-        IFP,
-        IFN,
-        JUMP,
-        PRINT,
-        PRINTS,
-        STOP
-    }
 
-    static class Instruction {
-        final OpCode opCode;
-        final String operandA;
-        final String operandB;
-        final int    sourceLine;
+    static Scanner keyboard = new Scanner(System.in);
 
-       // CONSTRUCTOR
-        Instruction(OpCode opCode, String operandA, String operandB, int sourceLine) {
-            this.opCode     = opCode;
-            this.operandA   = operandA;
-            this.operandB   = operandB;
-            this.sourceLine = sourceLine;
+    // ================================================================
+    //  DATA STRUCTURE 1 — ArrayList<String>  buffer
+    //
+    //  WHY ArrayList?
+    //  The user types lines one at a time. We don't know how many.
+    //  ArrayList grows automatically with every .add().
+    //  We also need to REMOVE lines by index (REMOVE command),
+    //  which ArrayList supports with .remove(index).
+    //
+    //  This is just the raw text the user typed — not yet parsed.
+    // ================================================================
+    static ArrayList<String> buffer = new ArrayList<>();
+
+
+    // ================================================================
+    //  DATA STRUCTURE 2 — ArrayList<String[]>  program
+    //
+    //  WHY ArrayList of String arrays?
+    //  After LOAD parses the buffer, each line becomes a String array:
+    //    instruction[0] = the opcode  e.g. "SET"
+    //    instruction[1] = operand A  e.g. "x"
+    //    instruction[2] = operand B  e.g. "5"
+    //  We store all parsed instructions in order so RUN can loop through.
+    //  ArrayList because we don't know the program size upfront.
+    //  Also stores the original source line number for error messages.
+    // ================================================================
+    static ArrayList<String[]> program = new ArrayList<>();
+
+
+    // ================================================================
+    //  DATA STRUCTURE 3 — HashMap<String, Integer>  variables
+    //
+    //  WHY HashMap?
+    //  Variables are KEY → VALUE pairs.
+    //  "x" → 5,  "result" → 120,  "n" → 3
+    //  .get("x") gives the value instantly without looping.
+    //  .put("x", 10) updates the value.
+    //
+    //  This is the interpreter's "memory" — it holds all SET variables.
+    // ================================================================
+    static HashMap<String, Integer> variables = new HashMap<>();
+
+
+    // ================================================================
+    //  DATA STRUCTURE 4 — HashMap<String, Integer>  labels
+    //
+    //  WHY HashMap?
+    //  A label like "LOOP:" marks a position in the program.
+    //  labels.put("LOOP", 3) means "LOOP is at instruction index 3".
+    //  When we see JUMP LOOP, we do pc = labels.get("LOOP") → jump to 3.
+    //  HashMap gives instant lookup — no scanning the whole program.
+    // ================================================================
+    static HashMap<String, Integer> labels = new HashMap<>();
+
+
+    // ================================================================
+    //  DATA STRUCTURE 5 — HashSet<String>  seenStates
+    //
+    //  WHY HashSet?
+    //  To detect infinite loops.
+    //  Before each instruction, we build a snapshot String of:
+    //    "PC=2|x=5|result=10|"
+    //  If we ever see the exact same snapshot again, the program
+    //  will repeat the same steps forever → infinite loop detected.
+    //  HashSet.contains() checks this instantly — no looping needed.
+    //  We only ever ADD and CHECK — HashSet is perfect for that.
+    // ================================================================
+    static HashSet<String> seenStates = new HashSet<>();
+
+
+    // ================================================================
+    //  pc — Program Counter
+    //
+    //  This is just a plain int — not a data structure.
+    //  It tracks WHICH instruction we are currently executing.
+    //  pc = 0 means "run the first instruction".
+    //  After each normal instruction, pc++ moves to the next one.
+    //  JUMP and IF instructions set pc directly to a label's index.
+    //  This is how the interpreter knows where it is in the program.
+    // ================================================================
+    static int pc = 0;
+
+
+    // ================================================================
+    //  MAIN — the shell loop
+    //  Keeps reading commands until the user types EXIT
+    // ================================================================
+    public static void main(String[] args) {
+
+        System.out.println("====================================");
+        System.out.println("  Mini-Language Interpreter");
+        System.out.println("====================================");
+        System.out.println("Type HELP to see all instructions.");
+        System.out.println("Type EXIT to quit.");
+        System.out.println();
+
+        boolean running = true;
+
+        while (running) {
+
+            System.out.print("Enter Command : > ");
+            String rawInput = keyboard.nextLine();
+            String input    = rawInput.trim();
+
+            if (input.isEmpty()) continue;
+
+            String upper = input.toUpperCase();
+
+            // ── Shell commands ──
+            if (upper.equals("EXIT") || upper.equals("QUIT")) {
+                System.out.println("Goodbye.");
+                running = false;
+
+            } else if (upper.equals("HELP")) {
+                printHelp();
+
+            } else if (upper.equals("LIST")) {
+                listBuffer();
+
+            } else if (upper.equals("CLEAR")) {
+                buffer.clear();
+                System.out.println("Program cleared.");
+
+            } else if (upper.equals("RUN")) {
+                runProgram();
+
+            } else if (upper.startsWith("REMOVE")) {
+                handleRemove(input);
+
+            } else {
+                // Any other line is treated as a program instruction
+                buffer.add(rawInput);
+                System.out.println("  [line " + buffer.size() + "] added.");
+            }
         }
 
-        // @Override tells us we're replacing the default version.
-        @Override
-        public String toString() {
-            String result = opCode.name();
-            if (operandA != null) result += " " + operandA;
-            if (operandB != null) result += " " + operandB;
-            return result;
-        }
+        keyboard.close();
     }
 
-    //  INSTANCE FIELDS — The interpreter's "memory"
-    private final List<Instruction>    program    = new ArrayList<>();
-    private final Map<String, Integer> variables  = new HashMap<>();
-    private final Map<String, Integer> labels     = new HashMap<>();
-    private final Set<String>          seenStates = new HashSet<>();
-    private int pc = 0;
 
-    public void load(List<String> sourceLines) {
-        // Clearing collections before a fresh run
+    // ================================================================
+    //  LOAD — reads the buffer and prepares the program
+    //  Two passes:
+    //    Pass 1 — find all labels (LOOP:, END:) and record their index
+    //    Pass 2 — parse every instruction line into a String[] array
+    // ================================================================
+    static void loadProgram() {
+
+        // Clear everything from any previous run
         program.clear();
         variables.clear();
         labels.clear();
         seenStates.clear();
         pc = 0;
 
-        // PASS 1: Collect labels only
-        int instructionCount = 0;
-        for (String rawLine : sourceLines) {
-            String line = rawLine.trim();
+        // ── PASS 1: Find labels ──
+        // We need to know label positions BEFORE parsing instructions
+        // because an instruction might jump to a label defined later
+        int instructionIndex = 0;
+
+        for (int i = 0; i < buffer.size(); i++) {
+            String line = buffer.get(i).trim();
+
+            // Skip blank lines and comments
             if (line.isEmpty() || line.startsWith(";")) continue;
 
             if (line.endsWith(":")) {
+                // This is a label — save its position in the labels HashMap
                 String labelName = line.substring(0, line.length() - 1).trim();
+
                 if (labels.containsKey(labelName)) {
                     throw new RuntimeException("Duplicate label: '" + labelName + "'");
                 }
-                labels.put(labelName, instructionCount);
+
+                // labels.put(key, value) — key=label name, value=instruction index
+                labels.put(labelName, instructionIndex);
+
             } else {
-                instructionCount++;
+                // This is a real instruction — count it
+                instructionIndex++;
             }
         }
 
-        // PASS 2: Parse instructions
-        int lineNum = 0;
-        for (String rawLine : sourceLines) {
-            lineNum++;
-            String line = rawLine.trim();
+        // ── PASS 2: Parse instructions into String[] arrays ──
+        int lineNumber = 0;
 
+        for (int i = 0; i < buffer.size(); i++) {
+            lineNumber++;
+            String line = buffer.get(i).trim();
+
+            // Skip blank lines, comments, and labels
             if (line.isEmpty() || line.startsWith(";") || line.endsWith(":")) continue;
-            program.add(parseLine(line, lineNum));
-        }
-    }
 
-    private Instruction parseLine(String line, int sourceLine) {
-        String[] tokens = line.split("\\s+", 3);
-        OpCode op;
-        switch (tokens[0].toUpperCase()) {
-            case "SET": op = OpCode.SET; break;
-            case "ADD": op = OpCode.ADD; break;
-            case "SUB": op = OpCode.SUB;  break;
-            case "MUL": op = OpCode.MUL; break;
-            case "DIV": op = OpCode.DIV; break;
-            case "IFZ": op = OpCode.IFZ; break;
-            case "IFP": op = OpCode.IFP; break;
-            case "IFN": op = OpCode.IFN; break;
-            case "JUMP": op = OpCode.JUMP; break;
-            case "PRINT": op = OpCode.PRINT;  break;
-            case "PRINTS": op = OpCode.PRINTS; break;
-            case "STOP": op = OpCode.STOP; break;
-            default:
-                throw new RuntimeException(
-                        "Line " + sourceLine + ": Unknown opcode '" + tokens[0] + "'");
-        }
+            // Split into at most 3 parts: [opcode, operandA, operandB]
+            // "SET x 5"   → ["SET", "x", "5"]
+            // "PRINT x"   → ["PRINT", "x"]
+            // "STOP"      → ["STOP"]
+            String[] parts  = line.split("\\s+", 3);
+            String   opcode = parts[0].toUpperCase();
+            String   opA    = parts.length > 1 ? parts[1] : null;
+            String   opB    = parts.length > 2 ? parts[2] : null;
 
-        String operandA = tokens.length > 1 ? tokens[1] : null;
-        String operandB = tokens.length > 2 ? tokens[2] : null;
+            // Validate that labels used in JUMP/IF exist
+            if (opcode.equals("JUMP")) {
+                if (opA == null || !labels.containsKey(opA)) {
+                    throw new RuntimeException("Line " + lineNumber
+                            + ": Unknown label '" + opA + "'");
+                }
+            }
+            if (opcode.equals("IFZ") || opcode.equals("IFP") || opcode.equals("IFN")) {
+                if (opB == null || !labels.containsKey(opB)) {
+                    throw new RuntimeException("Line " + lineNumber
+                            + ": Unknown label '" + opB + "'");
+                }
+            }
 
-        validateOperands(op, operandA, operandB, sourceLine);
+            // Store as a 4-element array:
+            // [0]=opcode  [1]=operandA  [2]=operandB  [3]=lineNumber
+            String[] instruction = new String[4];
+            instruction[0] = opcode;
+            instruction[1] = opA;
+            instruction[2] = opB;
+            instruction[3] = String.valueOf(lineNumber); // for error messages
 
-        if (op == OpCode.JUMP && !labels.containsKey(operandA)) {
-            throw new RuntimeException("Line " + sourceLine + ": Undefined label '" + operandA + "'");
-        }
-        if ((op == OpCode.IFZ || op == OpCode.IFP || op == OpCode.IFN) && !labels.containsKey(operandB)) {
-            throw new RuntimeException("Line " + sourceLine + ": Undefined label '" + operandB + "'");
-        }
-
-        return new Instruction(op, operandA, operandB, sourceLine);
-    }
-
-    // EnumSet
-    private void validateOperands(OpCode op, String operandA, String operandB, int sourceLine) {
-
-        EnumSet<OpCode> needsTwoOperands = EnumSet.of(
-                OpCode.SET, OpCode.ADD, OpCode.SUB, OpCode.MUL, OpCode.DIV,
-                OpCode.IFZ, OpCode.IFP, OpCode.IFN
-        );
-
-        EnumSet<OpCode> needsOneOperand = EnumSet.of(
-                OpCode.JUMP, OpCode.PRINT, OpCode.PRINTS
-        );
-
-        if (needsTwoOperands.contains(op) && (operandA == null || operandB == null)) {
-            throw new RuntimeException("Line " + sourceLine + ": " + op + " needs 2 operands.");
-        }
-        if (needsOneOperand.contains(op) && operandA == null) {
-            throw new RuntimeException("Line " + sourceLine + ": " + op + " needs 1 operand.");
+            program.add(instruction);
         }
     }
 
 
-    //  THE MAIN EXECUTION LOOP — run()
-    public void run() {
+    // ================================================================
+    //  RUN — executes instructions one by one
+    //  pc starts at 0 and moves forward after each instruction
+    //  JUMP and IF instructions move pc to a label position
+    //  STOP halts the loop
+    // ================================================================
+    static void runProgram() {
 
-        if (program.isEmpty()) {
-            System.out.println("  Nothing to run. Type some instructions first.");
+        if (buffer.isEmpty()) {
+            System.out.println("Nothing to run. Type some instructions first.");
             return;
         }
 
-        System.out.println("Program Running");
-        boolean running = true;
-        while (running && pc < program.size()) {
-            //Infinite Loop Detection
-            String currentStateKey = buildStateKey();
-            if (seenStates.contains(currentStateKey)) {
-                throw new RuntimeException(
-                        "Infinite loop detected at instruction " + pc
-                                + " -> [" + program.get(pc) + "]");
-            }
-            seenStates.add(currentStateKey);
+        // Load clears memory and parses the buffer fresh every time
+        try {
+            loadProgram();
+        } catch (RuntimeException e) {
+            System.out.println("[LOAD ERROR] " + e.getMessage());
+            return;
+        }
 
-            Instruction currentInstruction = program.get(pc);
+        System.out.println("--- Running ---");
 
-            //Execute
-            switch (currentInstruction.opCode) {
+        try {
+            while (pc < program.size()) {
 
-                case SET: {
-                    int value = parseIntLiteral(currentInstruction.operandB, currentInstruction.sourceLine);
-                    variables.put(currentInstruction.operandA, value);
-                    pc++;
-                    break;
+                // Get current instruction
+                String[] instr      = program.get(pc);
+                String   opcode     = instr[0];
+                String   opA        = instr[1];
+                String   opB        = instr[2];
+                int      lineNumber = Integer.parseInt(instr[3]);
+
+                // ── Infinite loop detection ──
+                // Build a snapshot of the current state as one String
+                String snapshot = buildSnapshot();
+                if (seenStates.contains(snapshot)) {
+                    throw new RuntimeException(
+                            "Infinite loop detected at instruction " + pc
+                                    + " [" + opcode + "]");
                 }
+                seenStates.add(snapshot);
 
-                case ADD: {
-                    int currentValue = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    int addAmount    = resolveOperand(currentInstruction.operandB, currentInstruction.sourceLine);
-                    variables.put(currentInstruction.operandA, currentValue + addAmount);
-                    pc++;
-                    break;
-                }
-                case SUB: {
-                    int currentValue   = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    int subtractAmount = resolveOperand(currentInstruction.operandB, currentInstruction.sourceLine);
-                    variables.put(currentInstruction.operandA, currentValue - subtractAmount);
-                    pc++;
-                    break;
-                }
-                case MUL: {
-                    int currentValue   = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    int multiplyAmount = resolveOperand(currentInstruction.operandB, currentInstruction.sourceLine);
-                    variables.put(currentInstruction.operandA, currentValue * multiplyAmount);
-                    pc++;
-                    break;
-                }
+                // ── Execute the instruction ──
 
-                case DIV: {
-                    int divisor = resolveOperand(currentInstruction.operandB, currentInstruction.sourceLine);
-                    if (divisor == 0) {
-                        throw new RuntimeException("Line " + currentInstruction.sourceLine + ": Division by zero.");
+                if (opcode.equals("SET")) {
+                    // SET x 5  →  create variable x with value 5
+                    int value = parseNumber(opB, lineNumber);
+                    variables.put(opA, value);
+                    pc++;
+
+                } else if (opcode.equals("ADD")) {
+                    // ADD x 3  →  x = x + 3
+                    int current = getVariable(opA, lineNumber);
+                    int amount  = resolveValue(opB, lineNumber);
+                    variables.put(opA, current + amount);
+                    pc++;
+
+                } else if (opcode.equals("SUB")) {
+                    // SUB x 3  →  x = x - 3
+                    int current = getVariable(opA, lineNumber);
+                    int amount  = resolveValue(opB, lineNumber);
+                    variables.put(opA, current - amount);
+                    pc++;
+
+                } else if (opcode.equals("MUL")) {
+                    // MUL x 3  →  x = x * 3
+                    int current = getVariable(opA, lineNumber);
+                    int amount  = resolveValue(opB, lineNumber);
+                    variables.put(opA, current * amount);
+                    pc++;
+
+                } else if (opcode.equals("DIV")) {
+                    // DIV x 3  →  x = x / 3
+                    int amount = resolveValue(opB, lineNumber);
+                    if (amount == 0) {
+                        throw new RuntimeException("Line " + lineNumber
+                                + ": Cannot divide by zero.");
                     }
-                    int currentValue = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    variables.put(currentInstruction.operandA, currentValue / divisor);
+                    int current = getVariable(opA, lineNumber);
+                    variables.put(opA, current / amount);
                     pc++;
-                    break;
-                }
 
-                case IFZ: {
-                    int variableValue = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    if (variableValue == 0) {
-                        pc = labels.get(currentInstruction.operandB);
+                } else if (opcode.equals("IFZ")) {
+                    // IFZ x LABEL  →  if x == 0, jump to LABEL
+                    int value = getVariable(opA, lineNumber);
+                    if (value == 0) {
+                        pc = labels.get(opB); // jump
+                    } else {
+                        pc++; // skip
+                    }
+
+                } else if (opcode.equals("IFP")) {
+                    // IFP x LABEL  →  if x > 0, jump to LABEL
+                    int value = getVariable(opA, lineNumber);
+                    if (value > 0) {
+                        pc = labels.get(opB);
                     } else {
                         pc++;
                     }
-                    break;
-                }
-                case IFP: {
-                    int variableValue = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    pc = (variableValue > 0) ? labels.get(currentInstruction.operandB) : pc + 1;
-                    break;
-                }
 
-                case IFN: {
-                    int variableValue = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    pc = (variableValue < 0) ? labels.get(currentInstruction.operandB) : pc + 1;
-                    break;
-                }
+                } else if (opcode.equals("IFN")) {
+                    // IFN x LABEL  →  if x < 0, jump to LABEL
+                    int value = getVariable(opA, lineNumber);
+                    if (value < 0) {
+                        pc = labels.get(opB);
+                    } else {
+                        pc++;
+                    }
 
-                case JUMP: {
-                    pc = labels.get(currentInstruction.operandA);
-                    break;
-                }
+                } else if (opcode.equals("JUMP")) {
+                    // JUMP LABEL  →  always jump to LABEL
+                    pc = labels.get(opA);
 
-                case PRINT: {
-                    int value = requireVariable(currentInstruction.operandA, currentInstruction.sourceLine);
-                    System.out.println("  " + currentInstruction.operandA + " = " + value);
+                } else if (opcode.equals("PRINT")) {
+                    // PRINT x  →  print the value of x
+                    int value = getVariable(opA, lineNumber);
+                    System.out.println("  " + opA + " = " + value);
                     pc++;
-                    break;
-                }
 
-                case PRINTS: {
-                    String text = currentInstruction.operandA;
-                    boolean hasQuotes = text.startsWith("\"") && text.endsWith("\"") && text.length() >= 2;
-                    if (hasQuotes) {
+                } else if (opcode.equals("PRINTS")) {
+                    // PRINTS "hello"  →  print the text
+                    String text = opA;
+                    if (text.startsWith("\"") && text.endsWith("\"")) {
                         text = text.substring(1, text.length() - 1);
                     }
                     System.out.println("  " + text);
                     pc++;
+
+                } else if (opcode.equals("STOP")) {
+                    // STOP  →  halt
                     break;
-                }
-                case STOP: {
-                    running = false;
-                    break;
+
+                } else {
+                    throw new RuntimeException("Line " + lineNumber
+                            + ": Unknown instruction '" + opcode + "'");
                 }
             }
+
+            System.out.println("--- Done ---");
+            printVariables();
+
+        } catch (RuntimeException e) {
+            System.out.println("[ERROR] " + e.getMessage());
         }
-        System.out.println("Done");
-        printFinalState();
     }
 
 
+    // ================================================================
     //  HELPER METHODS
-    // Resolve an operand: try to parse it as a number first,
-    private int resolveOperand(String operand, int sourceLine) {
+    // ================================================================
+
+    // resolveValue — tries to read opB as a number first,
+    // if that fails it treats it as a variable name
+    // e.g. "5" → 5    "x" → variables.get("x")
+    static int resolveValue(String operand, int lineNumber) {
         try {
             return Integer.parseInt(operand);
         } catch (NumberFormatException e) {
-            return requireVariable(operand, sourceLine);
+            return getVariable(operand, lineNumber);
         }
     }
 
-    // Parse a string as an integer literal — throw a clear error if it's not.
-    private int parseIntLiteral(String text, int sourceLine) {
+    // parseNumber — converts "5" to 5, throws a clear error if not a number
+    static int parseNumber(String text, int lineNumber) {
         try {
             return Integer.parseInt(text);
         } catch (NumberFormatException e) {
-            throw new RuntimeException(
-                    "Line " + sourceLine + ": Expected an integer, got '" + text + "'");
+            throw new RuntimeException("Line " + lineNumber
+                    + ": Expected a number, got '" + text + "'");
         }
     }
 
-    // Look up a variable — throw a clear error if it hasn't been SET yet.
-    private int requireVariable(String variableName, int sourceLine) {
-        Integer value = variables.get(variableName);
+    // getVariable — looks up a variable, throws clear error if not SET yet
+    static int getVariable(String name, int lineNumber) {
+        Integer value = variables.get(name);
         if (value == null) {
-            throw new RuntimeException(
-                    "Line " + sourceLine + ": Variable '" + variableName + "' used before being SET.");
+            throw new RuntimeException("Line " + lineNumber
+                    + ": Variable '" + name + "' used before SET.");
         }
         return value;
     }
 
-    //  CONCEPT: StringBuilder
-    private String buildStateKey() {
-        StringBuilder snapshot = new StringBuilder("PC=").append(pc).append("|");
+    // buildSnapshot — combines pc + all variables into one String
+    // Used to detect if we've been in this exact state before
+    // TreeMap sorts the variables alphabetically for consistent snapshots
+    static String buildSnapshot() {
+        StringBuilder snapshot = new StringBuilder("PC=" + pc + "|");
 
-        Map<String, Integer> sortedVariables = new TreeMap<>(variables);
-        for (Map.Entry<String, Integer> entry : sortedVariables.entrySet()) {
-            snapshot.append(entry.getKey()).append("=").append(entry.getValue()).append("|");
+        // TreeMap — sorts keys alphabetically
+        // WHY TreeMap here and not HashMap?
+        // HashMap does not guarantee order. "x=5|y=3" and "y=3|x=5"
+        // would look different as Strings even though state is the same.
+        // TreeMap always produces the same order → reliable snapshot.
+        TreeMap<String, Integer> sorted = new TreeMap<>(variables);
+
+        for (String key : sorted.keySet()) {
+            snapshot.append(key).append("=").append(sorted.get(key)).append("|");
         }
-
         return snapshot.toString();
     }
 
-    // Print all variable values at the end of a run
-    private void printFinalState() {
+    // printVariables — shows all variable values after run
+    static void printVariables() {
         if (variables.isEmpty()) return;
-        System.out.println("Variables after run:");
-
-        // TreeMap again for alphabetical, consistent output
-        new TreeMap<>(variables).forEach((name, value) ->
-                System.out.println("  " + name + " = " + value));
+        System.out.println("Variables:");
+        TreeMap<String, Integer> sorted = new TreeMap<>(variables);
+        for (String name : sorted.keySet()) {
+            System.out.println("  " + name + " = " + sorted.get(name));
+        }
     }
 
-    // Display the buffered program lines back to the user, numbered
-    private static void listProgram(List<String> buffer) {
+    // listBuffer — shows all lines currently in the buffer
+    static void listBuffer() {
         if (buffer.isEmpty()) {
-            System.out.println("  (empty — nothing typed yet)");
+            System.out.println("Buffer is empty. Start typing instructions.");
             return;
         }
-        System.out.println("Current program:");
+        System.out.println("Current program (" + buffer.size() + " lines):");
         for (int i = 0; i < buffer.size(); i++) {
-            // %3d = right-aligned integer in 3 chars, %s = string, %n = newline
-            System.out.printf("  %3d  %s%n", i + 1, buffer.get(i));
+            System.out.println("  " + (i + 1) + "  " + buffer.get(i));
         }
     }
 
-    // Print a cheat-sheet of all supported instructions
-    private static void printHelp() {
-        System.out.println("INSTRUCTIONS");
-        System.out.println("SET  var  value  var = integer literal");
-        System.out.println("ADD  var  val/var  var = var + operand");
-        System.out.println("SUB  var  val/var  var = var - operand");
-        System.out.println("MUL  var  val/var var = var * operand");
-        System.out.println("DIV  var  val/var  var = var / operand");
-        System.out.println("IFZ  var  LABEL jump if var == 0");
-        System.out.println("IFP  var  LABEL jump if var >  0");
-        System.out.println("IFN  var  LABEL jump if var <  0");
-        System.out.println("JUMP LABEL unconditional jump");
-        System.out.println("PRINT  var print variable");
-        System.out.println("PRINTS \"text\" print string");
-        System.out.println("STOP  halt program");
-        System.out.println("LABEL: define a jump target");
-        System.out.println("  ; text comment (ignored)");
-        System.out.println();
-        System.out.println("SHELL COMMANDS");
-        System.out.println("RUN  parse and execute the program");
-        System.out.println("LIST show lines you have typed so far");
-        System.out.println("CLEAR wipe everything, start fresh");
-        System.out.println("REMOVE n delete line number n");
-        System.out.println("HELP show this reference");
-        System.out.println("EXIT quit the interpreter");
-        System.out.println();
-        System.out.println("EXAMPLE — Factorial of 5:");
-        System.out.println("SET n 5");
-        System.out.println("SET result 1");
-        System.out.println("LOOP:");
-        System.out.println("MUL result n");
-        System.out.println("SUB n 1");
-        System.out.println("IFP n LOOP");
-        System.out.println("PRINT result");
-        System.out.println("STOP");
-        System.out.println(" result = 120");
-    }
-
-
-    // The Program Entry Point
-    public static void main(String[] args) {
-
-        Scanner keyboard = new Scanner(System.in);
-        List<String> buffer = new ArrayList<>();
-        MiniLangInterpreter vm = new MiniLangInterpreter();
-
-        System.out.println("Mini-Language Interpreter");
-        System.out.println("Type HELP for instructions and examples.");
-
-        // Shell Loop
-        while (true) {
-            System.out.print("Enter command > ");
-
-            if (!keyboard.hasNextLine()) break;
-
-            String rawInput = keyboard.nextLine();
-            String trimmedInput = rawInput.trim();
-
-            if (trimmedInput.isEmpty()) continue;
-
-            String upperInput = trimmedInput.toUpperCase();
-            String[] parts    = trimmedInput.split("\\s+");
-
-            // Shell Commands
-            if (upperInput.equals("EXIT") || upperInput.equals("QUIT")) {
-                System.out.println("Goodbye.");
-                break;
-            } else if (upperInput.equals("HELP")) {
-                printHelp();
-            } else if (upperInput.equals("LIST")) {
-                listProgram(buffer);
-            } else if (upperInput.equals("CLEAR")) {
-                buffer.clear();
-                System.out.println("  Program cleared.");
-            } else if (upperInput.startsWith("REMOVE")) {
-                if (parts.length < 2) {
-                    System.out.println("  Usage: REMOVE <line-number>");
-                } else {
-                    try {
-                        int lineNumber = Integer.parseInt(parts[1]);
-                        boolean lineExists = lineNumber >= 1 && lineNumber <= buffer.size();
-
-                        if (!lineExists) {
-                            System.out.println("  No line " + lineNumber
-                                    + ". Program has " + buffer.size() + " line(s).");
-                        } else {
-                            String removedLine = buffer.remove(lineNumber - 1);
-                            System.out.println("  Removed line " + lineNumber + ": " + removedLine);
-                        }
-
-                    } catch (NumberFormatException e) {
-                        System.out.println("  REMOVE needs an integer line number.");
-                    }
-                }
-
-            } else if (upperInput.equals("RUN")) {
-                if (buffer.isEmpty()) {
-                    System.out.println("Nothing to run. Type some instructions first.");
-                } else {
-                    try {
-                        vm.load(buffer);
-                        vm.run();
-                    } catch (RuntimeException error) {
-                        System.out.println("  [ERROR] " + error.getMessage());
-                    }
-                }
-
-            } else {
-                buffer.add(rawInput);
-                System.out.println("  [line " + buffer.size() + "] added.");
+    // handleRemove — deletes one line from the buffer by number
+    static void handleRemove(String input) {
+        String[] parts = input.split("\\s+");
+        if (parts.length < 2) {
+            System.out.println("Usage: REMOVE <line number>");
+            return;
+        }
+        try {
+            int lineNumber = Integer.parseInt(parts[1]);
+            if (lineNumber < 1 || lineNumber > buffer.size()) {
+                System.out.println("No line " + lineNumber
+                        + ". Buffer has " + buffer.size() + " line(s).");
+                return;
             }
+            String removed = buffer.remove(lineNumber - 1);
+            System.out.println("Removed line " + lineNumber + ": " + removed);
+        } catch (NumberFormatException e) {
+            System.out.println("REMOVE needs a line number. Example: REMOVE 3");
         }
-        keyboard.close();
+    }
+
+    // printHelp — shows all instructions and an example
+    static void printHelp() {
+        System.out.println();
+        System.out.println("======= INSTRUCTIONS =======");
+        System.out.println("  SET  var  number     set var to a number        e.g. SET x 5");
+        System.out.println("  ADD  var  val/var    var = var + amount          e.g. ADD x 3");
+        System.out.println("  SUB  var  val/var    var = var - amount          e.g. SUB x 1");
+        System.out.println("  MUL  var  val/var    var = var * amount          e.g. MUL x 2");
+        System.out.println("  DIV  var  val/var    var = var / amount          e.g. DIV x 2");
+        System.out.println("  IFZ  var  LABEL      jump to LABEL if var == 0  e.g. IFZ n END");
+        System.out.println("  IFP  var  LABEL      jump to LABEL if var >  0  e.g. IFP n LOOP");
+        System.out.println("  IFN  var  LABEL      jump to LABEL if var <  0");
+        System.out.println("  JUMP LABEL           always jump to LABEL        e.g. JUMP LOOP");
+        System.out.println("  PRINT var            print the value of var      e.g. PRINT x");
+        System.out.println("  PRINTS \"text\"        print a message             e.g. PRINTS \"Hi\"");
+        System.out.println("  STOP                 stop the program");
+        System.out.println("  LABEL:               mark a jump target          e.g. LOOP:");
+        System.out.println("  ; comment            ignored by the interpreter");
+        System.out.println();
+        System.out.println("======= SHELL COMMANDS =======");
+        System.out.println("  RUN        run the program you typed");
+        System.out.println("  LIST       show all lines you have typed");
+        System.out.println("  CLEAR      delete everything and start fresh");
+        System.out.println("  REMOVE n   delete line number n");
+        System.out.println("  HELP       show this guide");
+        System.out.println("  EXIT       quit the interpreter");
+        System.out.println();
+        System.out.println("======= EXAMPLE — Factorial of 5 =======");
+        System.out.println("  SET n 5");
+        System.out.println("  SET result 1");
+        System.out.println("  LOOP:");
+        System.out.println("  MUL result n");
+        System.out.println("  SUB n 1");
+        System.out.println("  IFP n LOOP");
+        System.out.println("  PRINT result");
+        System.out.println("  STOP");
+        System.out.println("  → result = 120");
+        System.out.println();
+        System.out.println("======= EXAMPLE — Count to 3 =======");
+        System.out.println("  SET i 1");
+        System.out.println("  LOOP:");
+        System.out.println("  PRINT i");
+        System.out.println("  ADD i 1");
+        System.out.println("  SET limit 3");
+        System.out.println("  SUB limit i");
+        System.out.println("  IFP limit LOOP");
+        System.out.println("  STOP");
+        System.out.println();
     }
 }
