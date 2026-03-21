@@ -27,14 +27,10 @@ public class MazeRunner {
     // ================================================================
     public static void main(String[] args) {
 
-        System.out.println("╔══════════════════════════════╗");
-        System.out.println("║       MAZE RUNNER GAME       ║");
-        System.out.println("╚══════════════════════════════╝");
-        System.out.println("  # = Wall        . = Empty");
-        System.out.println("  S = Start       E = Exit");
-        System.out.println("  P = Pickup +3   T = Teleport");
-        System.out.println("  @ = YOU");
-        System.out.println();
+        System.out.println("MAZE RUNNER GAME ");
+        System.out.println("# = Wall E = Exit");
+        System.out.println("P = Pickup +3 T = Teleport");
+        System.out.println("@ = YOU");
 
         boolean running = true;
 
@@ -45,7 +41,7 @@ public class MazeRunner {
             System.out.println("  3. Hard maze (teleports)");
             System.out.println("  4. How to play");
             System.out.println("  0. Exit");
-            System.out.print("\nChoice: ");
+            System.out.print("Choice: ");
 
             String choice = scanner.nextLine().trim();
 

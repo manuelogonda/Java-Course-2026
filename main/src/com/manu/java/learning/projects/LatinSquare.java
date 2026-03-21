@@ -496,7 +496,7 @@ public class LatinSquare {
 
     static void shuffleCells(ArrayList<int[]> list) {
         for (int i = list.size() - 1; i > 0; i--) {
-            int   j    = (int)(Math.random() * (i + 1));
+            int   j = (int)(Math.random() * (i + 1));
             int[] temp = list.get(i);
             list.set(i, list.get(j));
             list.set(j, temp);
