@@ -16,6 +16,9 @@ enum TransactionStatus{
 }
 
 public class SecureBankAccountSystem {
+    static void main(String[] args) {
+
+    }
     class Customer{
         private static int counter;
         private String customerId;
@@ -150,6 +153,102 @@ public class SecureBankAccountSystem {
         }
     }
     class BankAccount{
+        private static int idCounter = 0;
+        private String accountNumber;
+        private  Customer customer;
+        private AccountType type;
+        private  double balance;
+        private double minimumBalance;
+        private  LocalDate dateOpened;
+        private boolean active = true;
 
+
+
+        public BankAccount(String accountNumber, Customer customer, AccountType type
+        , double balance, double minimumBalance, boolean active) {
+            idCounter++;
+            this.active = active;
+            this.dateOpened = LocalDate.now();
+            this.minimumBalance = minimumBalance;
+            this.accountNumber = String.format("AC-%04d",idCounter);
+            this.customer = customer;
+            this.balance = balance;
+            this.type = type;
+
+            if (type == AccountType.SAVINGS) {
+                this.minimumBalance = 1000.0;
+            } else if (type == AccountType.CURRENT) {
+                this.minimumBalance = 0.0;
+            } else {
+                this.minimumBalance = 5000.0;
+            }
+
+        }
+//            getters
+            public boolean isActive() {
+                return active;
+            }
+
+        public AccountType getType() {
+            return type;
+        }
+
+        public Customer getCustomer() {
+            return customer;
+        }
+
+        public LocalDate getDateOpened() {
+            return dateOpened;
+        }
+
+//        setters
+        public void setActive(boolean active) {
+            this.active = active;
+        }
+
+//        helpers
+        public boolean deposit(double amount){
+            if (!active) {
+                return false;
+            }
+            if (amount < 0){
+                return false;
+            }
+            balance += amount;
+            return true;
+        }
+
+        public boolean withdraw(double amount){
+            if (!active) {
+                return false;
+            }
+            if (amount < 0){
+                return false;
+            }
+            if ((balance - amount) < minimumBalance) {
+                return false;
+            }
+            balance -= amount;
+            return  true;
+        }
+
+        public  String getBalanceDisplay(){
+            return String.format("KES %,.Of",balance);
+        }
+
+        public boolean canWithdraw(double amount){
+            if (withdraw(amount));
+            return active
+                    && amount > 0
+                    && (balance - amount) >= minimumBalance;
+        }
+
+        @Override
+        public String toString() {
+            return accountNumber + " — "
+                    + customer.getFullName()
+                    +  type
+                    + " — " + getBalanceDisplay();
+        }
     }
 }
